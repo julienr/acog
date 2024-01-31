@@ -1,4 +1,5 @@
 use std::io::SeekFrom;
+use std::mem::size_of;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncSeekExt};
 
@@ -20,6 +21,115 @@ impl From<io::Error> for Error {
     }
 }
 
+fn decode_u8(buf: [u8; 1], _byte_order: ByteOrder) -> u8 {
+    u8::from_ne_bytes(buf)
+}
+
+fn decode_u16(buf: [u8; 2], byte_order: ByteOrder) -> u16 {
+    match byte_order {
+        ByteOrder::LittleEndian => u16::from_le_bytes(buf),
+        ByteOrder::BigEndian => u16::from_be_bytes(buf),
+    }
+}
+
+fn decode_u32(buf: [u8; 4], byte_order: ByteOrder) -> u32 {
+    match byte_order {
+        ByteOrder::LittleEndian => u32::from_le_bytes(buf),
+        ByteOrder::BigEndian => u32::from_be_bytes(buf),
+    }
+}
+
+fn decode_u32_pair(buf: [u8; 8], byte_order: ByteOrder) -> (u32, u32) {
+    (
+        decode_u32([buf[0], buf[1], buf[2], buf[3]], byte_order),
+        decode_u32([buf[4], buf[5], buf[6], buf[7]], byte_order),
+    )
+}
+
+fn decode_i8(buf: [u8; 1], _byte_order: ByteOrder) -> i8 {
+    i8::from_ne_bytes(buf)
+}
+
+fn decode_i16(buf: [u8; 2], byte_order: ByteOrder) -> i16 {
+    match byte_order {
+        ByteOrder::LittleEndian => i16::from_le_bytes(buf),
+        ByteOrder::BigEndian => i16::from_be_bytes(buf),
+    }
+}
+
+fn decode_i32(buf: [u8; 4], byte_order: ByteOrder) -> i32 {
+    match byte_order {
+        ByteOrder::LittleEndian => i32::from_le_bytes(buf),
+        ByteOrder::BigEndian => i32::from_be_bytes(buf),
+    }
+}
+
+fn decode_i32_pair(buf: [u8; 8], byte_order: ByteOrder) -> (i32, i32) {
+    (
+        decode_i32([buf[0], buf[1], buf[2], buf[3]], byte_order),
+        decode_i32([buf[4], buf[5], buf[6], buf[7]], byte_order),
+    )
+}
+
+fn decode_f32(buf: [u8; 4], byte_order: ByteOrder) -> f32 {
+    match byte_order {
+        ByteOrder::LittleEndian => f32::from_le_bytes(buf),
+        ByteOrder::BigEndian => f32::from_be_bytes(buf),
+    }
+}
+
+fn decode_f64(buf: [u8; 8], byte_order: ByteOrder) -> f64 {
+    match byte_order {
+        ByteOrder::LittleEndian => f64::from_le_bytes(buf),
+        ByteOrder::BigEndian => f64::from_be_bytes(buf),
+    }
+}
+
+fn decode_string(buf: &Vec<u8>, _byte_order: ByteOrder) -> Result<String, Error> {
+    let mut str: String = "".to_string();
+    if buf[buf.len() - 1] != b'\0' {
+        return Err(Error::InvalidData(
+            "string not terminated by null character".to_string(),
+        ));
+    }
+    for v in &buf[..buf.len() - 1] {
+        let ch = char::from_u32(*v as u32);
+        match ch {
+            None => {
+                return Err(Error::InvalidData(format!("invalid character {:?}", v)));
+            }
+            Some('\0') => {
+                return Err(Error::InvalidData(
+                    "unexpected EOS character before count".to_string(),
+                ))
+            }
+            Some(c) => str.push(c),
+        }
+    }
+
+    Ok(str)
+}
+
+fn decode_vec<T, F, const N: usize>(
+    buf: &[u8],
+    count: usize,
+    decode_fn: F,
+    byte_order: ByteOrder,
+) -> Vec<T>
+where
+    F: Fn([u8; N], ByteOrder) -> T,
+{
+    let mut out = vec![];
+    let type_size: usize = size_of::<T>();
+    for i in 0..count {
+        out.push(decode_fn(
+            buf[i * type_size..(i + 1) * type_size].try_into().unwrap(),
+            byte_order,
+        ))
+    }
+    out
+}
+
 async fn read_u16(file: &mut File, byte_order: ByteOrder) -> Result<u16, io::Error> {
     match byte_order {
         ByteOrder::LittleEndian => file.read_u16_le().await,
@@ -34,57 +144,183 @@ async fn read_u32(file: &mut File, byte_order: ByteOrder) -> Result<u32, io::Err
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum FieldType {
+#[derive(Clone, Copy)]
+enum IFDType {
     Byte,
     Ascii,
     Short,
     Long,
     Rational,
     SignedByte,
-    Undefined, // For arbitrary bytes values
     SignedShort,
     SignedLong,
     SignedRational,
     Float,
     Double,
-    Unknown(u16),
+    UndefinedRawBytes,
 }
 
-#[derive(Debug)]
+fn type_size(ifd_type: IFDType) -> usize {
+    match ifd_type {
+        IFDType::Byte => 1,
+        IFDType::Ascii => 1,
+        IFDType::Short => 2,
+        IFDType::Long => 4,
+        IFDType::Rational => 8,
+        IFDType::SignedByte => 1,
+        IFDType::SignedShort => 2,
+        IFDType::SignedLong => 4,
+        IFDType::SignedRational => 8,
+        IFDType::Float => 4,
+        IFDType::Double => 8,
+        IFDType::UndefinedRawBytes => 1,
+    }
+}
+
+#[derive(Debug, Clone)]
+enum IFDValue {
+    Byte(Vec<u8>),
+    Ascii(String),
+    Short(Vec<u16>),
+    Long(Vec<u32>),
+    Rational(Vec<(u32, u32)>),
+    SignedByte(Vec<i8>),
+    UndefinedRawBytes(Vec<u8>), // For arbitrary bytes values
+    SignedShort(Vec<i16>),
+    SignedLong(Vec<i32>),
+    SignedRational(Vec<(i32, i32)>),
+    Float(Vec<f32>),
+    Double(Vec<f64>),
+}
+
+#[derive(Debug, Clone)]
 struct IFDEntry {
     pub tag: u16,
-    pub field_type: FieldType,
+    pub value: IFDValue,
+}
+
+struct IFDEntryMetadata {
+    pub tag: u16,
+    pub field_type: IFDType,
     pub count: u32,
     pub offset: u32,
 }
 
-async fn read_ifd_entry(file: &mut File, byte_order: ByteOrder) -> Result<IFDEntry, Error> {
-    let tag = read_u16(file, byte_order).await?;
-    let field_type = match read_u16(file, byte_order).await? {
-        0 => FieldType::Unknown(0),
-        1 => FieldType::Byte,
-        2 => FieldType::Ascii,
-        3 => FieldType::Short,
-        4 => FieldType::Long,
-        5 => FieldType::Rational,
-        6 => FieldType::SignedByte,
-        7 => FieldType::Undefined,
-        8 => FieldType::SignedShort,
-        9 => FieldType::SignedLong,
-        10 => FieldType::SignedRational,
-        11 => FieldType::Float,
-        12 => FieldType::Double,
-        v => FieldType::Unknown(v),
-    };
-    let count = read_u32(file, byte_order).await?;
-    let offset = read_u32(file, byte_order).await?;
-    Ok(IFDEntry {
-        tag,
-        field_type,
-        count,
-        offset,
-    })
+enum RawEntryResult {
+    KnownTag(IFDEntryMetadata),
+    UnknownTag(u16),
+}
+
+impl IFDEntryMetadata {
+    pub async fn read(file: &mut File, byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
+        // TODO: Read whole bytes chunk and then parse instead of reading one by one ?
+        let mut buf = [0u8; 12];
+        file.read_exact(&mut buf).await?;
+        let tag = decode_u16([buf[0], buf[1]], byte_order);
+        let field_type = decode_u16([buf[2], buf[3]], byte_order);
+        let field_type = match field_type {
+            0 => return Ok(RawEntryResult::UnknownTag(0)),
+            v @ 13.. => return Ok(RawEntryResult::UnknownTag(v)),
+            1 => IFDType::Byte,
+            2 => IFDType::Ascii,
+            3 => IFDType::Short,
+            4 => IFDType::Long,
+            5 => IFDType::Rational,
+            6 => IFDType::SignedByte,
+            7 => IFDType::UndefinedRawBytes,
+            8 => IFDType::SignedShort,
+            9 => IFDType::SignedLong,
+            10 => IFDType::SignedRational,
+            11 => IFDType::Float,
+            12 => IFDType::Double,
+        };
+        let count = decode_u32([buf[4], buf[5], buf[6], buf[7]], byte_order);
+        let offset = decode_u32([buf[8], buf[9], buf[10], buf[11]], byte_order);
+        Ok(RawEntryResult::KnownTag(IFDEntryMetadata {
+            tag,
+            field_type,
+            count,
+            offset,
+        }))
+    }
+
+    pub async fn full_read(
+        &self,
+        file: &mut File,
+        byte_order: ByteOrder,
+    ) -> Result<IFDEntry, Error> {
+        file.seek(SeekFrom::Start(self.offset.into())).await?;
+        let mut data = vec![0u8; type_size(self.field_type) * self.count as usize];
+        file.read_exact(data.as_mut_slice()).await?;
+        let value = match self.field_type {
+            IFDType::Byte => IFDValue::Byte(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u8,
+                byte_order,
+            )),
+            IFDType::Ascii => IFDValue::Ascii(decode_string(&data, byte_order)?),
+            IFDType::Short => IFDValue::Short(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u16,
+                byte_order,
+            )),
+            IFDType::Long => IFDValue::Long(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u32,
+                byte_order,
+            )),
+            IFDType::Rational => IFDValue::Rational(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u32_pair,
+                byte_order,
+            )),
+            IFDType::SignedByte => IFDValue::SignedByte(decode_vec(
+                &data,
+                self.count as usize,
+                decode_i8,
+                byte_order,
+            )),
+            IFDType::UndefinedRawBytes => IFDValue::UndefinedRawBytes(data),
+            IFDType::SignedShort => IFDValue::SignedShort(decode_vec(
+                &data,
+                self.count as usize,
+                decode_i16,
+                byte_order,
+            )),
+            IFDType::SignedLong => IFDValue::SignedLong(decode_vec(
+                &data,
+                self.count as usize,
+                decode_i32,
+                byte_order,
+            )),
+            IFDType::SignedRational => IFDValue::SignedRational(decode_vec(
+                &data,
+                self.count as usize,
+                decode_i32_pair,
+                byte_order,
+            )),
+            IFDType::Float => IFDValue::Float(decode_vec(
+                &data,
+                self.count as usize,
+                decode_f32,
+                byte_order,
+            )),
+            IFDType::Double => IFDValue::Double(decode_vec(
+                &data,
+                self.count as usize,
+                decode_f64,
+                byte_order,
+            )),
+        };
+        Ok(IFDEntry {
+            tag: self.tag,
+            value,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -97,41 +333,84 @@ async fn read_image_file_directory(
     byte_order: ByteOrder,
 ) -> Result<(ImageFileDirectory, u32), Error> {
     let fields_count = read_u16(file, byte_order).await?;
-    let mut entries = vec![];
+    let mut entries: Vec<IFDEntryMetadata> = vec![];
     for _ in 0..fields_count {
-        entries.push(read_ifd_entry(file, byte_order).await?);
+        match IFDEntryMetadata::read(file, byte_order).await? {
+            RawEntryResult::KnownTag(e) => entries.push(e),
+            RawEntryResult::UnknownTag(v) => {
+                println!("Unknown tag {:?}", v);
+            }
+        }
     }
     let next_ifd_offset = read_u32(file, byte_order).await?;
-    Ok((ImageFileDirectory { entries }, next_ifd_offset))
+    let mut full_entries: Vec<IFDEntry> = vec![];
+    for e in entries.iter() {
+        full_entries.push(e.full_read(file, byte_order).await?);
+    }
+    Ok((
+        ImageFileDirectory {
+            entries: full_entries,
+        },
+        next_ifd_offset,
+    ))
+}
+
+#[derive(Debug)]
+struct TIFFReader {
+    pub byte_order: ByteOrder,
+    pub ifds: Vec<ImageFileDirectory>,
+    file: File,
+}
+
+impl TIFFReader {
+    pub async fn open(filename: &str) -> Result<TIFFReader, Error> {
+        let mut file = File::open(filename).await?;
+        // Byte order & magic number check
+        let byte_order: ByteOrder = {
+            let mut buf = [0u8; 2];
+            file.read_exact(&mut buf[..]).await?;
+            if buf[0] == 0x49 && buf[1] == 0x49 {
+                Ok(ByteOrder::LittleEndian)
+            } else if buf[0] == 0x4D && buf[1] == 0x4D {
+                Ok(ByteOrder::BigEndian)
+            } else {
+                Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
+            }
+        }?;
+        let magic_number = read_u16(&mut file, byte_order).await?;
+        if magic_number != 42 {
+            return Err(Error::InvalidData(format!(
+                "Invalid magic_number {:?}",
+                magic_number
+            )));
+        }
+
+        // Read ifds
+        let ifds: Vec<ImageFileDirectory> = {
+            let mut ifds = vec![];
+            let mut ifd_offset = read_u32(&mut file, byte_order).await?;
+            // TODO: Infinite loop detection ?
+            while ifd_offset > 0 {
+                file.seek(SeekFrom::Start(ifd_offset.into())).await?;
+                let (ifd, next_ifd_offset) =
+                    read_image_file_directory(&mut file, byte_order).await?;
+                ifd_offset = next_ifd_offset;
+                ifds.push(ifd);
+            }
+            ifds
+        };
+
+        Ok(TIFFReader {
+            byte_order,
+            ifds,
+            file,
+        })
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
-    let mut file = File::open("example_data/example_1_no_compress.tif").await?;
-    let byte_order: ByteOrder = {
-        let mut buf = [0u8; 2];
-        file.read_exact(&mut buf[..]).await?;
-        if buf[0] == 0x49 && buf[1] == 0x49 {
-            Ok(ByteOrder::LittleEndian)
-        } else if buf[0] == 0x4D && buf[1] == 0x4D {
-            Ok(ByteOrder::BigEndian)
-        } else {
-            Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
-        }
-    }?;
-    println!("byte_order {:?}", byte_order);
-    let magic_number = read_u16(&mut file, byte_order).await?;
-    if magic_number != 42 {
-        return Err(Error::InvalidData(format!(
-            "Invalid magic_number {:?}",
-            magic_number
-        )));
-    }
-    println!("magic_number {:?}", magic_number);
-    let ifd_offset = read_u32(&mut file, byte_order).await?;
-    file.seek(SeekFrom::Start(ifd_offset.into())).await?;
-    let (ifd, next_ifd_offset) = read_image_file_directory(&mut file, byte_order).await?;
-    println!("ifd: {:?}", ifd);
-    println!("next_ifd_offset: {:?}", next_ifd_offset);
+    let reader = TIFFReader::open("example_data/example_1_no_compress.tif").await?;
+    println!("reader: {:?}", reader);
     Ok(())
 }
