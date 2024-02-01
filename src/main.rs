@@ -210,6 +210,11 @@ enum IFDTag {
     SamplesPerPixel,
     ExtraSamples,
     PlanarConfiguration,
+    TileLength,
+    TileWidth,
+    TileOffsets,
+    TileByteCounts,
+    SampleFormat,
     UnknownTag(u16),
 }
 
@@ -230,6 +235,11 @@ fn decode_tag(tag: u16) -> IFDTag {
         277 => IFDTag::SamplesPerPixel,
         338 => IFDTag::ExtraSamples,
         284 => IFDTag::PlanarConfiguration,
+        323 => IFDTag::TileLength,
+        322 => IFDTag::TileWidth,
+        324 => IFDTag::TileOffsets,
+        325 => IFDTag::TileByteCounts,
+        339 => IFDTag::SampleFormat,
         v => IFDTag::UnknownTag(v),
     }
 }
@@ -388,6 +398,12 @@ struct ImageFileDirectory {
     pub entries: Vec<IFDEntry>,
 }
 
+/*
+impl ImageFileDirectory {
+    fn make_image_reader () {}
+}
+*/
+
 async fn read_image_file_directory(
     file: &mut File,
     byte_order: ByteOrder,
@@ -473,7 +489,7 @@ impl TIFFReader {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
-    let reader = TIFFReader::open("example_data/example_1_no_compress.tif").await?;
+    let reader = TIFFReader::open("example_data/example_1_cog_nocompress.tif").await?;
     println!("reader: {:?}", reader);
     Ok(())
 }
