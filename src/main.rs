@@ -194,21 +194,68 @@ enum IFDValue {
 }
 
 #[derive(Debug, Clone)]
+enum IFDTag {
+    PhotometricInterpretation,
+    Compression,
+    ImageLength,
+    ImageWidth,
+    ResolutionUnit,
+    XResolution,
+    YResolution,
+    RowsPerStrip,
+    StripOffsets,
+    StripByteCounts,
+    BitsPerSample,
+    Colormap,
+    SamplesPerPixel,
+    ExtraSamples,
+    PlanarConfiguration,
+    UnknownTag(u16),
+}
+
+fn decode_tag(tag: u16) -> IFDTag {
+    match tag {
+        262 => IFDTag::PhotometricInterpretation,
+        259 => IFDTag::Compression,
+        257 => IFDTag::ImageLength,
+        256 => IFDTag::ImageWidth,
+        296 => IFDTag::ResolutionUnit,
+        282 => IFDTag::XResolution,
+        283 => IFDTag::YResolution,
+        278 => IFDTag::RowsPerStrip,
+        273 => IFDTag::StripOffsets,
+        279 => IFDTag::StripByteCounts,
+        258 => IFDTag::BitsPerSample,
+        320 => IFDTag::Colormap,
+        277 => IFDTag::SamplesPerPixel,
+        338 => IFDTag::ExtraSamples,
+        284 => IFDTag::PlanarConfiguration,
+        v => IFDTag::UnknownTag(v),
+    }
+}
+
+#[derive(Debug, Clone)]
 struct IFDEntry {
-    pub tag: u16,
+    pub tag: IFDTag,
     pub value: IFDValue,
+}
+
+enum OffsetOrInlineValue {
+    Offset(u32),
+    InlineValue([u8; 4]),
 }
 
 struct IFDEntryMetadata {
     pub tag: u16,
     pub field_type: IFDType,
     pub count: u32,
-    pub offset: u32,
+    pub offset: OffsetOrInlineValue,
 }
 
 enum RawEntryResult {
-    KnownTag(IFDEntryMetadata),
-    UnknownTag(u16),
+    KnownType(IFDEntryMetadata),
+    UnknownType(u16),
+    InvalidCount(u32),
 }
 
 impl IFDEntryMetadata {
@@ -219,8 +266,8 @@ impl IFDEntryMetadata {
         let tag = decode_u16([buf[0], buf[1]], byte_order);
         let field_type = decode_u16([buf[2], buf[3]], byte_order);
         let field_type = match field_type {
-            0 => return Ok(RawEntryResult::UnknownTag(0)),
-            v @ 13.. => return Ok(RawEntryResult::UnknownTag(v)),
+            0 => return Ok(RawEntryResult::UnknownType(0)),
+            v @ 13.. => return Ok(RawEntryResult::UnknownType(v)),
             1 => IFDType::Byte,
             2 => IFDType::Ascii,
             3 => IFDType::Short,
@@ -235,8 +282,15 @@ impl IFDEntryMetadata {
             12 => IFDType::Double,
         };
         let count = decode_u32([buf[4], buf[5], buf[6], buf[7]], byte_order);
-        let offset = decode_u32([buf[8], buf[9], buf[10], buf[11]], byte_order);
-        Ok(RawEntryResult::KnownTag(IFDEntryMetadata {
+        if count == 0 {
+            return Ok(RawEntryResult::InvalidCount(count));
+        }
+        let offset: OffsetOrInlineValue = if type_size(field_type) * count as usize <= 4 {
+            OffsetOrInlineValue::InlineValue([buf[8], buf[9], buf[10], buf[11]])
+        } else {
+            OffsetOrInlineValue::Offset(decode_u32([buf[8], buf[9], buf[10], buf[11]], byte_order))
+        };
+        Ok(RawEntryResult::KnownType(IFDEntryMetadata {
             tag,
             field_type,
             count,
@@ -249,9 +303,17 @@ impl IFDEntryMetadata {
         file: &mut File,
         byte_order: ByteOrder,
     ) -> Result<IFDEntry, Error> {
-        file.seek(SeekFrom::Start(self.offset.into())).await?;
-        let mut data = vec![0u8; type_size(self.field_type) * self.count as usize];
-        file.read_exact(data.as_mut_slice()).await?;
+        let data = match self.offset {
+            OffsetOrInlineValue::InlineValue(arr) => {
+                arr[0..type_size(self.field_type) * self.count as usize].to_vec()
+            }
+            OffsetOrInlineValue::Offset(offset) => {
+                let mut data = vec![0u8; type_size(self.field_type) * self.count as usize];
+                file.seek(SeekFrom::Start(offset.into())).await?;
+                file.read_exact(data.as_mut_slice()).await?;
+                data
+            }
+        };
         let value = match self.field_type {
             IFDType::Byte => IFDValue::Byte(decode_vec(
                 &data,
@@ -316,10 +378,8 @@ impl IFDEntryMetadata {
                 byte_order,
             )),
         };
-        Ok(IFDEntry {
-            tag: self.tag,
-            value,
-        })
+        let tag = decode_tag(self.tag);
+        Ok(IFDEntry { tag, value })
     }
 }
 
@@ -336,9 +396,12 @@ async fn read_image_file_directory(
     let mut entries: Vec<IFDEntryMetadata> = vec![];
     for _ in 0..fields_count {
         match IFDEntryMetadata::read(file, byte_order).await? {
-            RawEntryResult::KnownTag(e) => entries.push(e),
-            RawEntryResult::UnknownTag(v) => {
+            RawEntryResult::KnownType(e) => entries.push(e),
+            RawEntryResult::UnknownType(v) => {
                 println!("Unknown tag {:?}", v);
+            }
+            RawEntryResult::InvalidCount(c) => {
+                println!("Invalid count {:?}", c);
             }
         }
     }
