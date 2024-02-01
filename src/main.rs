@@ -11,13 +11,16 @@ enum ByteOrder {
 
 #[derive(Debug)]
 enum Error {
-    IOError(io::Error),
+    IO(io::Error),
     InvalidData(String),
+    RequiredTagNotFound(IFDTag),
+    TagHasWrongType(IFDTag, IFDValue),
+    UnsupportedTagValue(IFDTag, String),
 }
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {
-        Error::IOError(value)
+        Error::IO(value)
     }
 }
 
@@ -193,7 +196,7 @@ enum IFDValue {
     Double(Vec<f64>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum IFDTag {
     PhotometricInterpretation,
     Compression,
@@ -398,11 +401,89 @@ struct ImageFileDirectory {
     pub entries: Vec<IFDEntry>,
 }
 
-/*
 impl ImageFileDirectory {
-    fn make_image_reader () {}
+    fn get_tag_value(&self, tag: IFDTag) -> Result<IFDValue, Error> {
+        self.entries
+            .iter()
+            .find(|e| e.tag == tag)
+            .map(|entry| entry.value.clone())
+            .ok_or(Error::RequiredTagNotFound(tag))
+    }
+
+    fn get_usize_tag_value(&self, tag: IFDTag) -> Result<usize, Error> {
+        Ok(self.get_vec_usize_tag_value(tag)?[0])
+    }
+
+    fn get_vec_usize_tag_value(&self, tag: IFDTag) -> Result<Vec<usize>, Error> {
+        match self.get_tag_value(IFDTag::ImageWidth)? {
+            IFDValue::Short(values) => Ok(values.iter().map(|v| *v as usize).collect()),
+            IFDValue::Long(values) => Ok(values.iter().map(|v| *v as usize).collect()),
+            value => Err(Error::TagHasWrongType(tag, value)),
+        }
+    }
+
+    fn make_reader(&self) -> Result<IFDImageDataReader, Error> {
+        // Check photometric interpretation indicates a RGB image
+        match self.get_tag_value(IFDTag::PhotometricInterpretation)? {
+            IFDValue::Short(v) => {
+                if v[0] != 2 {
+                    return Err(Error::UnsupportedTagValue(
+                        IFDTag::PhotometricInterpretation,
+                        format!("{:?}", v),
+                    ));
+                }
+            }
+            value => {
+                return Err(Error::TagHasWrongType(
+                    IFDTag::PhotometricInterpretation,
+                    value,
+                ))
+            }
+        }
+        // Check planar configuration is contiguous pixels
+        match self.get_tag_value(IFDTag::PlanarConfiguration)? {
+            IFDValue::Short(v) => {
+                if v[0] != 1 {
+                    return Err(Error::UnsupportedTagValue(
+                        IFDTag::PlanarConfiguration,
+                        format!("{:?}", v),
+                    ));
+                }
+            }
+            value => return Err(Error::TagHasWrongType(IFDTag::PlanarConfiguration, value)),
+        }
+
+        // Check SamplesPerPixel
+        let nbands = self.get_usize_tag_value(IFDTag::SamplesPerPixel)?;
+        // TODO: Could/Should check ExtraSamples to now how to interpret those extra samples
+        // (e.g. alpha)
+
+        Ok(IFDImageDataReader {
+            width: self.get_usize_tag_value(IFDTag::ImageWidth)?,
+            height: self.get_usize_tag_value(IFDTag::ImageLength)?,
+            // TODO: NBANDS should check PhotometricInterp == RGB and then add
+            // the count of extra samples as additional bands
+            nbands,
+            tile_width: self.get_usize_tag_value(IFDTag::TileWidth)?,
+            tile_height: self.get_usize_tag_value(IFDTag::TileLength)?,
+            tile_offsets: self.get_vec_usize_tag_value(IFDTag::TileOffsets)?,
+            tile_byte_counts: self.get_vec_usize_tag_value(IFDTag::TileByteCounts)?,
+        })
+    }
 }
-*/
+
+#[derive(Debug)]
+struct IFDImageDataReader {
+    width: usize,
+    height: usize,
+    nbands: usize,
+    tile_width: usize,
+    tile_height: usize,
+    tile_offsets: Vec<usize>,
+    tile_byte_counts: Vec<usize>,
+}
+
+impl IFDImageDataReader {}
 
 async fn read_image_file_directory(
     file: &mut File,
@@ -491,5 +572,7 @@ impl TIFFReader {
 async fn main() -> Result<(), Error> {
     let reader = TIFFReader::open("example_data/example_1_cog_nocompress.tif").await?;
     println!("reader: {:?}", reader);
+    let ifd_reader = reader.ifds[0].make_reader()?;
+    println!("reader: {:?}", ifd_reader);
     Ok(())
 }
