@@ -415,7 +415,7 @@ impl ImageFileDirectory {
     }
 
     fn get_vec_usize_tag_value(&self, tag: IFDTag) -> Result<Vec<usize>, Error> {
-        match self.get_tag_value(IFDTag::ImageWidth)? {
+        match self.get_tag_value(tag.clone())? {
             IFDValue::Short(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             IFDValue::Long(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             value => Err(Error::TagHasWrongType(tag, value)),
@@ -455,14 +455,13 @@ impl ImageFileDirectory {
 
         // Check SamplesPerPixel
         let nbands = self.get_usize_tag_value(IFDTag::SamplesPerPixel)?;
+        println!("nbands={:?}", nbands);
         // TODO: Could/Should check ExtraSamples to now how to interpret those extra samples
         // (e.g. alpha)
 
         Ok(IFDImageDataReader {
             width: self.get_usize_tag_value(IFDTag::ImageWidth)?,
             height: self.get_usize_tag_value(IFDTag::ImageLength)?,
-            // TODO: NBANDS should check PhotometricInterp == RGB and then add
-            // the count of extra samples as additional bands
             nbands,
             tile_width: self.get_usize_tag_value(IFDTag::TileWidth)?,
             tile_height: self.get_usize_tag_value(IFDTag::TileLength)?,
@@ -483,7 +482,44 @@ struct IFDImageDataReader {
     tile_byte_counts: Vec<usize>,
 }
 
-impl IFDImageDataReader {}
+impl IFDImageDataReader {
+    // This pastes the given tile in the given output array, working on flattened version of the arrays
+    fn paste_tile(&self, out: &mut [u8], tile: &[u8], i: usize, j: usize) {
+        // Note that tiles can be larged than the image, so we need to ignore out of bounds pixels
+        for ti in 0..self.tile_height {
+            if i + ti >= self.height {
+                break;
+            }
+            for tj in 0..self.tile_width {
+                if j + tj >= self.width {
+                    break;
+                }
+                out[(i + ti) * self.width * self.nbands + (j + tj) * self.nbands] =
+                    tile[ti * self.tile_width * self.nbands + tj * self.nbands];
+            }
+        }
+    }
+    pub async fn read_image(&self, file: &mut File) -> Result<Vec<u8>, Error> {
+        let mut data = vec![0u8; self.width * self.height * self.nbands];
+        let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
+        let tiles_down = (self.height + self.tile_height - 1) / self.tile_height;
+        for i in 0..tiles_down {
+            for j in 0..tiles_across {
+                // As per the spec, tiles are ordered left to right and top to bottom
+                let tile_index = j * tiles_down + i;
+                let offset = self.tile_offsets[tile_index];
+                // Read compressed buf
+                // TODO: We assume PlanarConfiguration=1 here
+                let mut buf = vec![0u8; self.tile_byte_counts[tile_index]];
+                file.seek(SeekFrom::Start(offset as u64)).await?;
+                file.read_exact(&mut buf).await?;
+                // "Decompress" into data
+                self.paste_tile(&mut data, &buf, i * self.tile_height, j * self.tile_width);
+            }
+        }
+        Ok(data)
+    }
+}
 
 async fn read_image_file_directory(
     file: &mut File,
@@ -570,9 +606,11 @@ impl TIFFReader {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
-    let reader = TIFFReader::open("example_data/example_1_cog_nocompress.tif").await?;
+    let mut reader = TIFFReader::open("example_data/example_1_cog_nocompress.tif").await?;
     println!("reader: {:?}", reader);
     let ifd_reader = reader.ifds[0].make_reader()?;
     println!("reader: {:?}", ifd_reader);
+    let data = ifd_reader.read_image(&mut reader.file).await?;
+    println!("data: {:?}", data);
     Ok(())
 }
