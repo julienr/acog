@@ -1,1 +1,4 @@
 /target
+venv
+.ipynb_checkpoints
+*.npy

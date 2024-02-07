@@ -3,6 +3,8 @@ use std::mem::size_of;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncSeekExt};
 
+mod npy;
+
 #[derive(Debug, Clone, Copy)]
 enum ByteOrder {
     LittleEndian,
@@ -452,11 +454,23 @@ impl ImageFileDirectory {
             }
             value => return Err(Error::TagHasWrongType(IFDTag::PlanarConfiguration, value)),
         }
+        // Check BitsPerSample
+        match self.get_tag_value(IFDTag::BitsPerSample)? {
+            IFDValue::Short(v) => {
+                if !v.iter().all(|item| *item == 8) {
+                    return Err(Error::UnsupportedTagValue(
+                        IFDTag::BitsPerSample,
+                        format!("{:?}", v),
+                    ));
+                }
+            }
+            value => return Err(Error::TagHasWrongType(IFDTag::BitsPerSample, value)),
+        }
 
         // Check SamplesPerPixel
         let nbands = self.get_usize_tag_value(IFDTag::SamplesPerPixel)?;
         println!("nbands={:?}", nbands);
-        // TODO: Could/Should check ExtraSamples to now how to interpret those extra samples
+        // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
         Ok(IFDImageDataReader {
@@ -466,36 +480,38 @@ impl ImageFileDirectory {
             tile_width: self.get_usize_tag_value(IFDTag::TileWidth)?,
             tile_height: self.get_usize_tag_value(IFDTag::TileLength)?,
             tile_offsets: self.get_vec_usize_tag_value(IFDTag::TileOffsets)?,
-            tile_byte_counts: self.get_vec_usize_tag_value(IFDTag::TileByteCounts)?,
+            tile_bytes_counts: self.get_vec_usize_tag_value(IFDTag::TileByteCounts)?,
         })
     }
 }
 
 #[derive(Debug)]
 struct IFDImageDataReader {
-    width: usize,
-    height: usize,
-    nbands: usize,
+    pub width: usize,
+    pub height: usize,
+    pub nbands: usize,
     tile_width: usize,
     tile_height: usize,
     tile_offsets: Vec<usize>,
-    tile_byte_counts: Vec<usize>,
+    tile_bytes_counts: Vec<usize>,
 }
 
 impl IFDImageDataReader {
     // This pastes the given tile in the given output array, working on flattened version of the arrays
-    fn paste_tile(&self, out: &mut [u8], tile: &[u8], i: usize, j: usize) {
-        // Note that tiles can be larged than the image, so we need to ignore out of bounds pixels
+    fn paste_tile(&self, out: &mut [u8], tile: &[u8], img_i: usize, img_j: usize) {
+        // Note that tiles can be larger than the image, so we need to ignore out of bounds pixels
         for ti in 0..self.tile_height {
-            if i + ti >= self.height {
+            if img_i + ti >= self.height {
                 break;
             }
             for tj in 0..self.tile_width {
-                if j + tj >= self.width {
+                if img_j + tj >= self.width {
                     break;
                 }
-                out[(i + ti) * self.width * self.nbands + (j + tj) * self.nbands] =
-                    tile[ti * self.tile_width * self.nbands + tj * self.nbands];
+                for b in 0..self.nbands {
+                    out[(img_i + ti) * self.width * self.nbands + (img_j + tj) * self.nbands + b] =
+                        tile[ti * self.tile_width * self.nbands + tj * self.nbands + b];
+                }
             }
         }
     }
@@ -503,18 +519,24 @@ impl IFDImageDataReader {
         let mut data = vec![0u8; self.width * self.height * self.nbands];
         let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
         let tiles_down = (self.height + self.tile_height - 1) / self.tile_height;
-        for i in 0..tiles_down {
-            for j in 0..tiles_across {
+        for tile_i in 0..tiles_down {
+            for tile_j in 0..tiles_across {
                 // As per the spec, tiles are ordered left to right and top to bottom
-                let tile_index = j * tiles_down + i;
+                let tile_index = tile_i * tiles_across + tile_j;
                 let offset = self.tile_offsets[tile_index];
+                println!("tile_i={}, tile_j={}, offset={}", tile_i, tile_j, offset);
                 // Read compressed buf
                 // TODO: We assume PlanarConfiguration=1 here
-                let mut buf = vec![0u8; self.tile_byte_counts[tile_index]];
+                let mut buf = vec![0u8; self.tile_bytes_counts[tile_index]];
                 file.seek(SeekFrom::Start(offset as u64)).await?;
                 file.read_exact(&mut buf).await?;
                 // "Decompress" into data
-                self.paste_tile(&mut data, &buf, i * self.tile_height, j * self.tile_width);
+                self.paste_tile(
+                    &mut data,
+                    &buf,
+                    tile_i * self.tile_height,
+                    tile_j * self.tile_width,
+                );
             }
         }
         Ok(data)
@@ -610,7 +632,12 @@ async fn main() -> Result<(), Error> {
     println!("reader: {:?}", reader);
     let ifd_reader = reader.ifds[0].make_reader()?;
     println!("reader: {:?}", ifd_reader);
-    let data = ifd_reader.read_image(&mut reader.file).await?;
-    println!("data: {:?}", data);
+    let img_data = ifd_reader.read_image(&mut reader.file).await?;
+    println!("img_data.len: {:?}", img_data.len());
+    npy::write_to_npy(
+        "img.npy",
+        img_data,
+        [ifd_reader.height, ifd_reader.width, ifd_reader.nbands],
+    )?;
     Ok(())
 }
