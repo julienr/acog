@@ -7,3 +7,9 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.35.1", features = ["rt", "macros", "io-util", "fs"] }
+
+[lib]
+name = "acog"
+
+[[bin]]
+name = "to_npy"

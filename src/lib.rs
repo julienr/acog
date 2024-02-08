@@ -3,7 +3,7 @@ use std::mem::size_of;
 use tokio::fs::File;
 use tokio::io::{self, AsyncReadExt, AsyncSeekExt};
 
-mod npy;
+pub mod npy;
 
 #[derive(Debug, Clone, Copy)]
 enum ByteOrder {
@@ -12,7 +12,7 @@ enum ByteOrder {
 }
 
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     IO(io::Error),
     InvalidData(String),
     RequiredTagNotFound(IFDTag),
@@ -183,7 +183,7 @@ fn type_size(ifd_type: IFDType) -> usize {
 }
 
 #[derive(Debug, Clone)]
-enum IFDValue {
+pub enum IFDValue {
     Byte(Vec<u8>),
     Ascii(String),
     Short(Vec<u16>),
@@ -199,7 +199,7 @@ enum IFDValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum IFDTag {
+pub enum IFDTag {
     PhotometricInterpretation,
     Compression,
     ImageLength,
@@ -250,7 +250,7 @@ fn decode_tag(tag: u16) -> IFDTag {
 }
 
 #[derive(Debug, Clone)]
-struct IFDEntry {
+pub struct IFDEntry {
     pub tag: IFDTag,
     pub value: IFDValue,
 }
@@ -399,7 +399,7 @@ impl IFDEntryMetadata {
 }
 
 #[derive(Debug)]
-struct ImageFileDirectory {
+pub struct ImageFileDirectory {
     pub entries: Vec<IFDEntry>,
 }
 
@@ -424,7 +424,7 @@ impl ImageFileDirectory {
         }
     }
 
-    fn make_reader(&self) -> Result<IFDImageDataReader, Error> {
+    pub fn make_reader(&self) -> Result<IFDImageDataReader, Error> {
         // Check photometric interpretation indicates a RGB image
         match self.get_tag_value(IFDTag::PhotometricInterpretation)? {
             IFDValue::Short(v) => {
@@ -486,7 +486,7 @@ impl ImageFileDirectory {
 }
 
 #[derive(Debug)]
-struct IFDImageDataReader {
+pub struct IFDImageDataReader {
     pub width: usize,
     pub height: usize,
     pub nbands: usize,
@@ -574,10 +574,9 @@ async fn read_image_file_directory(
 }
 
 #[derive(Debug)]
-struct TIFFReader {
-    pub byte_order: ByteOrder,
+pub struct TIFFReader {
     pub ifds: Vec<ImageFileDirectory>,
-    file: File,
+    pub file: File,
 }
 
 impl TIFFReader {
@@ -618,26 +617,6 @@ impl TIFFReader {
             ifds
         };
 
-        Ok(TIFFReader {
-            byte_order,
-            ifds,
-            file,
-        })
+        Ok(TIFFReader { ifds, file })
     }
-}
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Error> {
-    let mut reader = TIFFReader::open("example_data/example_1_cog_nocompress.tif").await?;
-    println!("reader: {:?}", reader);
-    let ifd_reader = reader.ifds[0].make_reader()?;
-    println!("reader: {:?}", ifd_reader);
-    let img_data = ifd_reader.read_image(&mut reader.file).await?;
-    println!("img_data.len: {:?}", img_data.len());
-    npy::write_to_npy(
-        "img.npy",
-        img_data,
-        [ifd_reader.height, ifd_reader.width, ifd_reader.nbands],
-    )?;
-    Ok(())
 }
