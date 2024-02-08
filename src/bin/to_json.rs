@@ -1,6 +1,8 @@
 use acog::npy::write_to_npy;
 use acog::{Error, TIFFReader};
 use std::env;
+use std::fs::File;
+use std::io::prelude::*;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
@@ -14,17 +16,8 @@ async fn main() -> Result<(), Error> {
 
     let filename = &args[1];
     let mut reader = TIFFReader::open(filename).await?;
-    println!("reader: {:?}", reader);
     let ifd_reader = reader.ifds[0].make_reader()?;
-    // TODO: Read last ifd => on the marina COG, this is the transparency mask (PhotometricInterp = 4)
-    //let ifd_reader = reader.ifds.iter().last().unwrap().make_reader()?;
-    println!("reader: {:?}", ifd_reader);
-    let img_data = ifd_reader.read_image(&mut reader.file).await?;
-    println!("img_data.len: {:?}", img_data.len());
-    write_to_npy(
-        "img.npy",
-        img_data,
-        [ifd_reader.height, ifd_reader.width, ifd_reader.nbands],
-    )?;
+    let mut file = File::create("out.json")?;
+    file.write_all(&serde_json::to_string(&reader).unwrap().into_bytes())?;
     Ok(())
 }

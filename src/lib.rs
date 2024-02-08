@@ -183,6 +183,7 @@ fn type_size(ifd_type: IFDType) -> usize {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub enum IFDValue {
     Byte(Vec<u8>),
     Ascii(String),
@@ -199,6 +200,7 @@ pub enum IFDValue {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub enum IFDTag {
     PhotometricInterpretation,
     Compression,
@@ -250,6 +252,7 @@ fn decode_tag(tag: u16) -> IFDTag {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct IFDEntry {
     pub tag: IFDTag,
     pub value: IFDValue,
@@ -399,6 +402,7 @@ impl IFDEntryMetadata {
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImageFileDirectory {
     pub entries: Vec<IFDEntry>,
 }
@@ -574,8 +578,10 @@ async fn read_image_file_directory(
 }
 
 #[derive(Debug)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct TIFFReader {
     pub ifds: Vec<ImageFileDirectory>,
+    #[cfg_attr(feature = "json", serde(skip_serializing))]
     pub file: File,
 }
 
