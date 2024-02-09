@@ -78,7 +78,17 @@ pub enum IFDTag {
     TileWidth,
     TileOffsets,
     TileByteCounts,
+    NewSubfileType,
     SampleFormat,
+    Predictor,
+    // Geotiff tags
+    ModelPixelScaleTag,
+    ModelTiepointTag,
+    GeoKeyDirectoryTag,
+    GeoDoubleParamsTag,
+    GeoAsciiParamsTag,
+    // GDAL specific: https://www.awaresystems.be/imaging/tiff/tifftags/gdal_metadata.html
+    GdalMetadata,
     UnknownTag(u16),
 }
 
@@ -103,7 +113,15 @@ fn decode_tag(tag: u16) -> IFDTag {
         322 => IFDTag::TileWidth,
         324 => IFDTag::TileOffsets,
         325 => IFDTag::TileByteCounts,
+        254 => IFDTag::NewSubfileType,
         339 => IFDTag::SampleFormat,
+        317 => IFDTag::Predictor,
+        33550 => IFDTag::ModelPixelScaleTag,
+        33922 => IFDTag::ModelTiepointTag,
+        34735 => IFDTag::GeoKeyDirectoryTag,
+        34736 => IFDTag::GeoDoubleParamsTag,
+        34737 => IFDTag::GeoAsciiParamsTag,
+        42112 => IFDTag::GdalMetadata,
         v => IFDTag::UnknownTag(v),
     }
 }
