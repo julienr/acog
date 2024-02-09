@@ -3,3 +3,4 @@ venv
 .ipynb_checkpoints
 *.npy
 out.json
+example_data/local

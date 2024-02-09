@@ -1,4 +1,3 @@
-use acog::npy::write_to_npy;
 use acog::{Error, TIFFReader};
 use std::env;
 use std::fs::File;
@@ -15,8 +14,7 @@ async fn main() -> Result<(), Error> {
     }
 
     let filename = &args[1];
-    let mut reader = TIFFReader::open(filename).await?;
-    let ifd_reader = reader.ifds[0].make_reader()?;
+    let reader = TIFFReader::open(filename).await?;
     let mut file = File::create("out.json")?;
     file.write_all(&serde_json::to_string(&reader).unwrap().into_bytes())?;
     Ok(())
