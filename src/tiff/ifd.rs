@@ -78,6 +78,9 @@ pub enum IFDTag {
     TileWidth,
     TileOffsets,
     TileByteCounts,
+    // TODO: See the COG spec for how to handle those values:
+    // https://docs.ogc.org/is/21-026/21-026.html
+    // 7.2.1. Requirement Reduced-Resolution Subfiles
     NewSubfileType,
     SampleFormat,
     Predictor,
