@@ -4,6 +4,7 @@ use std::io;
 #[derive(Debug)]
 pub enum Error {
     IO(io::Error),
+    SourceError(String),
     InvalidData(String),
     RequiredTagNotFound(IFDTag),
     TagHasWrongType(IFDTag, IFDValue),

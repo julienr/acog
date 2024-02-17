@@ -1,10 +1,9 @@
 use crate::errors::Error;
 /// Low-level byte conversion functions
 use std::mem::size_of;
-use tokio::fs::File;
-use tokio::io::{self, AsyncReadExt};
 
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub enum ByteOrder {
     LittleEndian,
     BigEndian,
@@ -74,7 +73,7 @@ pub fn decode_f64(buf: [u8; 8], byte_order: ByteOrder) -> f64 {
     }
 }
 
-pub fn decode_string(buf: &Vec<u8>, _byte_order: ByteOrder) -> Result<String, Error> {
+pub fn decode_string(buf: &[u8], _byte_order: ByteOrder) -> Result<String, Error> {
     let mut str: String = "".to_string();
     if buf[buf.len() - 1] != b'\0' {
         return Err(Error::InvalidData(
@@ -117,18 +116,4 @@ where
         ))
     }
     out
-}
-
-pub async fn read_u16(file: &mut File, byte_order: ByteOrder) -> Result<u16, io::Error> {
-    match byte_order {
-        ByteOrder::LittleEndian => file.read_u16_le().await,
-        ByteOrder::BigEndian => file.read_u16().await,
-    }
-}
-
-pub async fn read_u32(file: &mut File, byte_order: ByteOrder) -> Result<u32, io::Error> {
-    match byte_order {
-        ByteOrder::LittleEndian => file.read_u32_le().await,
-        ByteOrder::BigEndian => file.read_u32().await,
-    }
 }

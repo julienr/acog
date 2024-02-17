@@ -1,12 +1,12 @@
 /// Base functionality to read TIFF IFDs (ImageFileDirectory)
-use std::io::SeekFrom;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use std::mem::size_of;
 
 use super::low_level::*;
 use crate::errors::Error;
+use crate::sources::{CachedSource, Source};
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 enum IFDType {
     Byte,
     Ascii,
@@ -56,7 +56,7 @@ pub enum IFDValue {
     Double(Vec<f64>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub enum IFDTag {
     PhotometricInterpretation,
@@ -136,16 +136,27 @@ pub struct IFDEntry {
     pub value: IFDValue,
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 enum OffsetOrInlineValue {
     Offset(u32),
     InlineValue([u8; 4]),
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
 struct IFDEntryMetadata {
-    pub tag: u16,
+    pub tag: IFDTag,
     pub field_type: IFDType,
     pub count: u32,
     pub offset: OffsetOrInlineValue,
+    byte_order: ByteOrder,
+}
+
+#[cfg_attr(feature = "json", derive(serde::Serialize))]
+pub struct FullyDecodedIFDEntry {
+    pub tag: IFDTag,
+    pub value: IFDValue,
 }
 
 enum RawEntryResult {
@@ -154,11 +165,28 @@ enum RawEntryResult {
     InvalidCount(u32),
 }
 
+async fn read_u16(
+    cached_source: &mut CachedSource,
+    offset: u64,
+    byte_order: ByteOrder,
+) -> Result<u16, Error> {
+    let mut buf = [0u8; 2];
+    cached_source.read_exact(offset, &mut buf).await?;
+    Ok(decode_u16(buf, byte_order))
+}
+
+async fn read_u32(
+    cached_source: &mut CachedSource,
+    offset: u64,
+    byte_order: ByteOrder,
+) -> Result<u32, Error> {
+    let mut buf = [0u8; 4];
+    cached_source.read_exact(offset, &mut buf).await?;
+    Ok(decode_u32(buf, byte_order))
+}
+
 impl IFDEntryMetadata {
-    pub async fn read(file: &mut File, byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
-        // TODO: Read whole bytes chunk and then parse instead of reading one by one ?
-        let mut buf = [0u8; 12];
-        file.read_exact(&mut buf).await?;
+    pub async fn decode(buf: &[u8; 12], byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
         let tag = decode_u16([buf[0], buf[1]], byte_order);
         let field_type = decode_u16([buf[2], buf[3]], byte_order);
         let field_type = match field_type {
@@ -187,26 +215,24 @@ impl IFDEntryMetadata {
             OffsetOrInlineValue::Offset(decode_u32([buf[8], buf[9], buf[10], buf[11]], byte_order))
         };
         Ok(RawEntryResult::KnownType(IFDEntryMetadata {
-            tag,
+            tag: decode_tag(tag),
             field_type,
             count,
             offset,
+            byte_order,
         }))
     }
 
-    pub async fn full_read(
-        &self,
-        file: &mut File,
-        byte_order: ByteOrder,
-    ) -> Result<IFDEntry, Error> {
+    pub async fn read_value(&self, source: &mut CachedSource) -> Result<IFDValue, Error> {
         let data = match self.offset {
             OffsetOrInlineValue::InlineValue(arr) => {
                 arr[0..type_size(self.field_type) * self.count as usize].to_vec()
             }
             OffsetOrInlineValue::Offset(offset) => {
                 let mut data = vec![0u8; type_size(self.field_type) * self.count as usize];
-                file.seek(SeekFrom::Start(offset.into())).await?;
-                file.read_exact(data.as_mut_slice()).await?;
+                source
+                    .read_exact(offset as u64, data.as_mut_slice())
+                    .await?;
                 data
             }
         };
@@ -215,100 +241,124 @@ impl IFDEntryMetadata {
                 &data,
                 self.count as usize,
                 decode_u8,
-                byte_order,
+                self.byte_order,
             )),
-            IFDType::Ascii => IFDValue::Ascii(decode_string(&data, byte_order)?),
+            IFDType::Ascii => IFDValue::Ascii(decode_string(&data, self.byte_order)?),
             IFDType::Short => IFDValue::Short(decode_vec(
                 &data,
                 self.count as usize,
                 decode_u16,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::Long => IFDValue::Long(decode_vec(
                 &data,
                 self.count as usize,
                 decode_u32,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::Rational => IFDValue::Rational(decode_vec(
                 &data,
                 self.count as usize,
                 decode_u32_pair,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::SignedByte => IFDValue::SignedByte(decode_vec(
                 &data,
                 self.count as usize,
                 decode_i8,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::UndefinedRawBytes => IFDValue::UndefinedRawBytes(data),
             IFDType::SignedShort => IFDValue::SignedShort(decode_vec(
                 &data,
                 self.count as usize,
                 decode_i16,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::SignedLong => IFDValue::SignedLong(decode_vec(
                 &data,
                 self.count as usize,
                 decode_i32,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::SignedRational => IFDValue::SignedRational(decode_vec(
                 &data,
                 self.count as usize,
                 decode_i32_pair,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::Float => IFDValue::Float(decode_vec(
                 &data,
                 self.count as usize,
                 decode_f32,
-                byte_order,
+                self.byte_order,
             )),
             IFDType::Double => IFDValue::Double(decode_vec(
                 &data,
                 self.count as usize,
                 decode_f64,
-                byte_order,
+                self.byte_order,
             )),
         };
-        let tag = decode_tag(self.tag);
-        Ok(IFDEntry { tag, value })
+        Ok(value)
+    }
+
+    pub async fn read(&self, source: &mut CachedSource) -> Result<FullyDecodedIFDEntry, Error> {
+        Ok(FullyDecodedIFDEntry {
+            tag: self.tag,
+            value: self.read_value(source).await?,
+        })
     }
 }
 
 #[derive(Debug)]
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImageFileDirectory {
-    pub entries: Vec<IFDEntry>,
+    entries: Vec<IFDEntryMetadata>,
 }
 
 impl ImageFileDirectory {
-    fn get_tag_value(&self, tag: IFDTag) -> Result<IFDValue, Error> {
-        self.entries
-            .iter()
-            .find(|e| e.tag == tag)
-            .map(|entry| entry.value.clone())
-            .ok_or(Error::RequiredTagNotFound(tag))
+    async fn get_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<IFDValue, Error> {
+        let entry = self.entries.iter().find(|e| e.tag == tag);
+        match entry {
+            Some(e) => Ok(e.read_value(source).await?),
+            None => Err(Error::RequiredTagNotFound(tag)),
+        }
     }
 
-    fn get_usize_tag_value(&self, tag: IFDTag) -> Result<usize, Error> {
-        Ok(self.get_vec_usize_tag_value(tag)?[0])
+    async fn get_usize_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<usize, Error> {
+        Ok(self.get_vec_usize_tag_value(source, tag).await?[0])
     }
 
-    fn get_vec_usize_tag_value(&self, tag: IFDTag) -> Result<Vec<usize>, Error> {
-        match self.get_tag_value(tag.clone())? {
+    async fn get_vec_usize_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<Vec<usize>, Error> {
+        match self.get_tag_value(source, tag).await? {
             IFDValue::Short(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             IFDValue::Long(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             value => Err(Error::TagHasWrongType(tag, value)),
         }
     }
 
-    pub fn make_reader(&self) -> Result<IFDImageDataReader, Error> {
+    pub async fn make_reader(
+        &self,
+        source: &mut CachedSource,
+    ) -> Result<IFDImageDataReader, Error> {
         // Check photometric interpretation indicates a RGB image
-        match self.get_tag_value(IFDTag::PhotometricInterpretation)? {
+        match self
+            .get_tag_value(source, IFDTag::PhotometricInterpretation)
+            .await?
+        {
             IFDValue::Short(v) => {
                 if v[0] != 2 {
                     return Err(Error::UnsupportedTagValue(
@@ -325,7 +375,10 @@ impl ImageFileDirectory {
             }
         }
         // Check planar configuration is contiguous pixels
-        match self.get_tag_value(IFDTag::PlanarConfiguration)? {
+        match self
+            .get_tag_value(source, IFDTag::PlanarConfiguration)
+            .await?
+        {
             IFDValue::Short(v) => {
                 if v[0] != 1 {
                     return Err(Error::UnsupportedTagValue(
@@ -337,7 +390,7 @@ impl ImageFileDirectory {
             value => return Err(Error::TagHasWrongType(IFDTag::PlanarConfiguration, value)),
         }
         // Check BitsPerSample
-        match self.get_tag_value(IFDTag::BitsPerSample)? {
+        match self.get_tag_value(source, IFDTag::BitsPerSample).await? {
             IFDValue::Short(v) => {
                 if !v.iter().all(|item| *item == 8) {
                     return Err(Error::UnsupportedTagValue(
@@ -350,19 +403,28 @@ impl ImageFileDirectory {
         }
 
         // Check SamplesPerPixel
-        let nbands = self.get_usize_tag_value(IFDTag::SamplesPerPixel)?;
+        let nbands = self
+            .get_usize_tag_value(source, IFDTag::SamplesPerPixel)
+            .await?;
         println!("nbands={:?}", nbands);
         // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
+        // TODO: Use u64 instead of usize here
         Ok(IFDImageDataReader {
-            width: self.get_usize_tag_value(IFDTag::ImageWidth)?,
-            height: self.get_usize_tag_value(IFDTag::ImageLength)?,
+            width: self.get_usize_tag_value(source, IFDTag::ImageWidth).await?,
+            height: self
+                .get_usize_tag_value(source, IFDTag::ImageLength)
+                .await?,
             nbands,
-            tile_width: self.get_usize_tag_value(IFDTag::TileWidth)?,
-            tile_height: self.get_usize_tag_value(IFDTag::TileLength)?,
-            tile_offsets: self.get_vec_usize_tag_value(IFDTag::TileOffsets)?,
-            tile_bytes_counts: self.get_vec_usize_tag_value(IFDTag::TileByteCounts)?,
+            tile_width: self.get_usize_tag_value(source, IFDTag::TileWidth).await?,
+            tile_height: self.get_usize_tag_value(source, IFDTag::TileLength).await?,
+            tile_offsets: self
+                .get_vec_usize_tag_value(source, IFDTag::TileOffsets)
+                .await?,
+            tile_bytes_counts: self
+                .get_vec_usize_tag_value(source, IFDTag::TileByteCounts)
+                .await?,
         })
     }
 }
@@ -397,7 +459,9 @@ impl IFDImageDataReader {
             }
         }
     }
-    pub async fn read_image(&self, file: &mut File) -> Result<Vec<u8>, Error> {
+
+    // TODO: Not sure caching make sense here
+    pub async fn read_image(&self, source: &mut CachedSource) -> Result<Vec<u8>, Error> {
         let mut data = vec![0u8; self.width * self.height * self.nbands];
         let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
         let tiles_down = (self.height + self.tile_height - 1) / self.tile_height;
@@ -410,8 +474,7 @@ impl IFDImageDataReader {
                 // Read compressed buf
                 // TODO: We assume PlanarConfiguration=1 here
                 let mut buf = vec![0u8; self.tile_bytes_counts[tile_index]];
-                file.seek(SeekFrom::Start(offset as u64)).await?;
-                file.read_exact(&mut buf).await?;
+                source.read_exact(offset as u64, &mut buf).await?;
                 // "Decompress" into data
                 self.paste_tile(
                     &mut data,
@@ -426,33 +489,34 @@ impl IFDImageDataReader {
 }
 
 async fn read_image_file_directory(
-    file: &mut File,
+    cached_source: &mut CachedSource,
+    offset: u64,
     byte_order: ByteOrder,
 ) -> Result<(ImageFileDirectory, u32), Error> {
-    let fields_count = read_u16(file, byte_order).await?;
+    let fields_count = read_u16(cached_source, offset, byte_order).await? as u64;
+    let offset = offset + size_of::<u16>() as u64;
     let mut entries: Vec<IFDEntryMetadata> = vec![];
-    for _ in 0..fields_count {
-        match IFDEntryMetadata::read(file, byte_order).await? {
+    for i in 0..fields_count {
+        let mut buf = [0u8; 12];
+        cached_source.read_exact(offset + i * 12, &mut buf).await?;
+        match IFDEntryMetadata::decode(&buf, byte_order).await? {
             RawEntryResult::KnownType(e) => entries.push(e),
             RawEntryResult::UnknownType(v) => {
-                println!("Unknown tag {:?}", v);
+                println!("Unknown type {:?}", v);
             }
             RawEntryResult::InvalidCount(c) => {
                 println!("Invalid count {:?}", c);
             }
         }
     }
-    let next_ifd_offset = read_u32(file, byte_order).await?;
+    let next_ifd_offset = read_u32(cached_source, offset + fields_count * 12, byte_order).await?;
+    /*
     let mut full_entries: Vec<IFDEntry> = vec![];
     for e in entries.iter() {
         full_entries.push(e.full_read(file, byte_order).await?);
     }
-    Ok((
-        ImageFileDirectory {
-            entries: full_entries,
-        },
-        next_ifd_offset,
-    ))
+    */
+    Ok((ImageFileDirectory { entries }, next_ifd_offset))
 }
 
 #[derive(Debug)]
@@ -460,16 +524,16 @@ async fn read_image_file_directory(
 pub struct TIFFReader {
     pub ifds: Vec<ImageFileDirectory>,
     #[cfg_attr(feature = "json", serde(skip_serializing))]
-    pub file: File,
+    pub source: CachedSource,
 }
 
 impl TIFFReader {
-    pub async fn open(filename: &str) -> Result<TIFFReader, Error> {
-        let mut file = File::open(filename).await?;
+    pub async fn open(source: Source) -> Result<TIFFReader, Error> {
+        let mut cached_source = CachedSource::new(source);
         // Byte order & magic number check
         let byte_order: ByteOrder = {
             let mut buf = [0u8; 2];
-            file.read_exact(&mut buf[..]).await?;
+            cached_source.read_exact(0, &mut buf[..]).await?;
             if buf[0] == 0x49 && buf[1] == 0x49 {
                 Ok(ByteOrder::LittleEndian)
             } else if buf[0] == 0x4D && buf[1] == 0x4D {
@@ -478,7 +542,7 @@ impl TIFFReader {
                 Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
             }
         }?;
-        let magic_number = read_u16(&mut file, byte_order).await?;
+        let magic_number = read_u16(&mut cached_source, 2, byte_order).await?;
         if magic_number != 42 {
             return Err(Error::InvalidData(format!(
                 "Invalid magic_number {:?}",
@@ -489,18 +553,38 @@ impl TIFFReader {
         // Read ifds
         let ifds: Vec<ImageFileDirectory> = {
             let mut ifds = vec![];
-            let mut ifd_offset = read_u32(&mut file, byte_order).await?;
+            let mut ifd_offset = read_u32(&mut cached_source, 4, byte_order).await?;
             // TODO: Infinite loop detection ?
             while ifd_offset > 0 {
-                file.seek(SeekFrom::Start(ifd_offset.into())).await?;
                 let (ifd, next_ifd_offset) =
-                    read_image_file_directory(&mut file, byte_order).await?;
+                    read_image_file_directory(&mut cached_source, ifd_offset as u64, byte_order)
+                        .await?;
                 ifd_offset = next_ifd_offset;
                 ifds.push(ifd);
             }
             ifds
         };
 
-        Ok(TIFFReader { ifds, file })
+        Ok(TIFFReader {
+            ifds,
+            source: cached_source,
+        })
+    }
+
+    /// This will fully read + decode all ifd entries in the file
+    pub async fn fully_read_ifds(&mut self) -> Result<Vec<Vec<FullyDecodedIFDEntry>>, Error> {
+        let mut fully_decoded_ifds: Vec<Vec<FullyDecodedIFDEntry>> = vec![];
+        for ifd in self.ifds.iter() {
+            let mut decoded_entries = vec![];
+            for e in ifd.entries.iter() {
+                decoded_entries.push(e.read(&mut self.source).await?);
+            }
+            fully_decoded_ifds.push(decoded_entries);
+        }
+        Ok(fully_decoded_ifds)
+    }
+
+    pub fn print_cache_stats(&self) {
+        println!("cache stats: {}", self.source.cache_stats());
     }
 }
