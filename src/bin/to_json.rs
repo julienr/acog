@@ -15,7 +15,7 @@ async fn main() -> Result<(), Error> {
 
     let filename = &args[1];
     let output_filename = &args[2];
-    let mut reader = acog::open(filename).await?;
+    let mut reader = acog::TIFFReader::open_from_source_spec(filename).await?;
 
     // Decode all entries of all IFDs to dump them
     let fully_decoded_ifds = reader.fully_read_ifds().await?;

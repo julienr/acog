@@ -9,6 +9,7 @@ pub enum Error {
     RequiredTagNotFound(IFDTag),
     TagHasWrongType(IFDTag, IFDValue),
     UnsupportedTagValue(IFDTag, String),
+    NotACOG(String),
 }
 
 impl From<io::Error> for Error {

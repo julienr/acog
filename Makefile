@@ -1,6 +1,7 @@
 .PHONY: display json display_small json_small
 
-all: display_small
+all:
+	cargo build --all-targets
 
 display:
 	cargo run --bin to_npy -- example_data/local/marina_cog_nocompress.tif && python utils/npyshow.py img.npy

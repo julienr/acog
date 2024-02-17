@@ -3,7 +3,7 @@ use std::mem::size_of;
 
 use super::low_level::*;
 use crate::errors::Error;
-use crate::sources::{CachedSource, Source};
+use crate::sources::{self, CachedSource, Source};
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
@@ -318,7 +318,7 @@ pub struct ImageFileDirectory {
 }
 
 impl ImageFileDirectory {
-    async fn get_tag_value(
+    pub async fn get_tag_value(
         &self,
         source: &mut CachedSource,
         tag: IFDTag,
@@ -330,7 +330,7 @@ impl ImageFileDirectory {
         }
     }
 
-    async fn get_usize_tag_value(
+    pub async fn get_usize_tag_value(
         &self,
         source: &mut CachedSource,
         tag: IFDTag,
@@ -338,7 +338,7 @@ impl ImageFileDirectory {
         Ok(self.get_vec_usize_tag_value(source, tag).await?[0])
     }
 
-    async fn get_vec_usize_tag_value(
+    pub async fn get_vec_usize_tag_value(
         &self,
         source: &mut CachedSource,
         tag: IFDTag,
@@ -350,6 +350,7 @@ impl ImageFileDirectory {
         }
     }
 
+    /// TODO: Remove in favor of COG
     pub async fn make_reader(
         &self,
         source: &mut CachedSource,
@@ -528,7 +529,20 @@ pub struct TIFFReader {
 }
 
 impl TIFFReader {
-    pub async fn open(source: Source) -> Result<TIFFReader, Error> {
+    pub async fn open_from_source_spec(source_spec: &String) -> Result<TIFFReader, Error> {
+        let source_string = source_spec.to_string();
+        if source_string.starts_with("/vsis3/") {
+            let file_source =
+                sources::S3Source::new(source_string.strip_prefix("/vsis3/").unwrap()).await?;
+            let reader = Self::open_from_source(sources::Source::S3(file_source)).await?;
+            Ok(reader)
+        } else {
+            let file_source = sources::FileSource::new(&source_string).await?;
+            let reader = Self::open_from_source(sources::Source::File(file_source)).await?;
+            Ok(reader)
+        }
+    }
+    pub async fn open_from_source(source: Source) -> Result<TIFFReader, Error> {
         let mut cached_source = CachedSource::new(source);
         // Byte order & magic number check
         let byte_order: ByteOrder = {
