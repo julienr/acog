@@ -1,8 +1,8 @@
+mod epsg;
 mod errors;
 pub mod npy;
 mod sources;
 mod tiff;
-mod epsg;
 
 pub use errors::Error;
 pub use tiff::cog::COG;

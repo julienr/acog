@@ -156,10 +156,7 @@ pub struct GeoKeyDirectory {
 }
 
 impl GeoKeyDirectory {
-    pub fn get_key_value(
-        &self,
-        id: KeyID,
-    ) -> Result<&KeyValue, Error> {
+    pub fn get_key_value(&self, id: KeyID) -> Result<&KeyValue, Error> {
         let entry = self.keys.iter().find(|e| e.id == id);
         match entry {
             Some(e) => Ok(&e.value),
@@ -167,10 +164,7 @@ impl GeoKeyDirectory {
         }
     }
 
-    pub fn get_vec_short_key_value(
-        &self,
-        id: KeyID
-    ) -> Result<&Vec<u16>, Error> {
+    pub fn get_vec_short_key_value(&self, id: KeyID) -> Result<&Vec<u16>, Error> {
         match self.get_key_value(id)? {
             KeyValue::Short(values) => Ok(values),
             value => Err(Error::GeoKeyHasWrongType(id, value.clone())),

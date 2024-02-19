@@ -1,5 +1,5 @@
-use crate::tiff::ifd::{IFDTag, IFDValue};
 use crate::tiff::geo_keys::{KeyID, KeyValue};
+use crate::tiff::ifd::{IFDTag, IFDValue};
 use std::io;
 
 #[derive(Debug)]

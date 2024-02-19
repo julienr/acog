@@ -1,8 +1,8 @@
 use super::geo_keys::GeoKeyDirectory;
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
+use super::proj::Georeference;
 use crate::sources::CachedSource;
 use crate::Error;
-use super::proj::Georeference;
 
 /// Functionality specific to reading Cloud Optimized Geotiffs
 #[derive(Debug)]
@@ -13,7 +13,7 @@ pub struct COG {
     mask_overviews: Vec<Overview>,
     pub geo_keys: GeoKeyDirectory,
     pub source: CachedSource,
-    pub georeference: Georeference
+    pub georeference: Georeference,
 }
 
 #[derive(Debug)]
