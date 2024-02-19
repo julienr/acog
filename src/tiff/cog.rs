@@ -1,6 +1,8 @@
+use super::geo_keys::GeoKeyDirectory;
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
 use crate::sources::CachedSource;
 use crate::Error;
+use super::proj::Georeference;
 
 /// Functionality specific to reading Cloud Optimized Geotiffs
 #[derive(Debug)]
@@ -9,20 +11,20 @@ pub struct COG {
     pub overviews: Vec<Overview>,
     #[allow(dead_code)]
     mask_overviews: Vec<Overview>,
+    pub geo_keys: GeoKeyDirectory,
     pub source: CachedSource,
+    pub georeference: Georeference
 }
 
 #[derive(Debug)]
 pub struct Overview {
-    width: u64,
-    height: u64,
-    #[allow(dead_code)]
-    tile_width: u64,
-    #[allow(dead_code)]
-    tile_height: u64,
-    nbands: u64,
+    pub width: u64,
+    pub height: u64,
+    pub tile_width: u64,
+    pub tile_height: u64,
+    pub nbands: u64,
     pub ifd: ImageFileDirectory,
-    is_full_resolution: bool,
+    pub is_full_resolution: bool,
 }
 
 impl Overview {
@@ -79,7 +81,6 @@ impl Overview {
         let nbands = ifd
             .get_usize_tag_value(source, IFDTag::SamplesPerPixel)
             .await?;
-        println!("nbands={:?}", nbands);
         // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
@@ -178,11 +179,17 @@ impl COG {
                 prev_height = overviews[i].height;
             }
         }
+        // As per the COG spec, the overview contains the projection/geokey data
+        let geo_keys = GeoKeyDirectory::from_ifd(&overviews[0].ifd, &mut source).await?;
+
+        let georeference = Georeference::decode(&overviews[0].ifd, &mut source, &geo_keys).await?;
 
         Ok(COG {
             overviews,
             mask_overviews,
             source,
+            geo_keys,
+            georeference,
         })
     }
 

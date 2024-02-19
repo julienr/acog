@@ -22,3 +22,6 @@ name = "to_npy"
 [[bin]]
 name = "to_json"
 required-features = ["json"]
+
+[[bin]]
+name = "cog_info"

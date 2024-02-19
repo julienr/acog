@@ -1,4 +1,5 @@
 use crate::tiff::ifd::{IFDTag, IFDValue};
+use crate::tiff::geo_keys::{KeyID, KeyValue};
 use std::io;
 
 #[derive(Debug)]
@@ -10,6 +11,9 @@ pub enum Error {
     TagHasWrongType(IFDTag, IFDValue),
     UnsupportedTagValue(IFDTag, String),
     NotACOG(String),
+    RequiredGeoKeyNotFound(KeyID),
+    GeoKeyHasWrongType(KeyID, KeyValue),
+    UnsupportedProjection(String),
 }
 
 impl From<io::Error> for Error {

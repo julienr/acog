@@ -95,6 +95,11 @@ pub enum IFDTag {
     UnknownTag(u16),
 }
 
+// Those are exposed because they are required by `geo_keys` for parsing GeoKeyDirectory
+pub const GEO_DOUBLE_PARAMS_TAG: u16 = 34736;
+pub const GEO_ASCII_PARAMS_TAG: u16 = 34737;
+pub const GEO_KEY_DIRECTORY_TAG: u16 = 34735;
+
 fn decode_tag(tag: u16) -> IFDTag {
     match tag {
         262 => IFDTag::PhotometricInterpretation,
@@ -121,9 +126,9 @@ fn decode_tag(tag: u16) -> IFDTag {
         317 => IFDTag::Predictor,
         33550 => IFDTag::ModelPixelScaleTag,
         33922 => IFDTag::ModelTiepointTag,
-        34735 => IFDTag::GeoKeyDirectoryTag,
-        34736 => IFDTag::GeoDoubleParamsTag,
-        34737 => IFDTag::GeoAsciiParamsTag,
+        GEO_KEY_DIRECTORY_TAG => IFDTag::GeoKeyDirectoryTag,
+        GEO_DOUBLE_PARAMS_TAG => IFDTag::GeoDoubleParamsTag,
+        GEO_ASCII_PARAMS_TAG => IFDTag::GeoAsciiParamsTag,
         42112 => IFDTag::GdalMetadata,
         v => IFDTag::UnknownTag(v),
     }
@@ -350,6 +355,39 @@ impl ImageFileDirectory {
         }
     }
 
+    pub async fn get_vec_short_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<Vec<u16>, Error> {
+        match self.get_tag_value(source, tag).await? {
+            IFDValue::Short(values) => Ok(values),
+            value => Err(Error::TagHasWrongType(tag, value)),
+        }
+    }
+
+    pub async fn get_vec_double_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<Vec<f64>, Error> {
+        match self.get_tag_value(source, tag).await? {
+            IFDValue::Double(values) => Ok(values),
+            value => Err(Error::TagHasWrongType(tag, value)),
+        }
+    }
+
+    pub async fn get_string_tag_value(
+        &self,
+        source: &mut CachedSource,
+        tag: IFDTag,
+    ) -> Result<String, Error> {
+        match self.get_tag_value(source, tag).await? {
+            IFDValue::Ascii(value) => Ok(value),
+            value => Err(Error::TagHasWrongType(tag, value)),
+        }
+    }
+
     /// TODO: Remove in favor of COG
     pub async fn make_reader(
         &self,
@@ -407,7 +445,6 @@ impl ImageFileDirectory {
         let nbands = self
             .get_usize_tag_value(source, IFDTag::SamplesPerPixel)
             .await?;
-        println!("nbands={:?}", nbands);
         // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
