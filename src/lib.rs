@@ -3,6 +3,7 @@ mod errors;
 pub mod npy;
 mod sources;
 mod tiff;
+mod tiler;
 
 pub use errors::Error;
 pub use tiff::cog::COG;
