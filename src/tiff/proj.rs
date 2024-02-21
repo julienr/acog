@@ -22,7 +22,7 @@ fn close(a: f64, b: f64) -> bool {
 }
 
 impl Geotransform {
-    pub fn decode(tie_points: &Vec<f64>, pixel_scale: &Vec<f64>) -> Result<Geotransform, Error> {
+    pub fn decode(tie_points: &Vec<f64>, pixel_scale: &[f64]) -> Result<Geotransform, Error> {
         if tie_points.len() != 6 {
             return Err(Error::UnsupportedProjection(format!("Currently only support rasters georeferenced with an affine geotransform. Expected tie_points of len 6, got {}", tie_points.len())));
         }

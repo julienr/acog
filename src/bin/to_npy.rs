@@ -31,7 +31,6 @@ async fn main() -> Result<(), Error> {
     }
     let overview = &cog.overviews[overview_index];
     let img_data = overview
-        .ifd
         .make_reader(&mut cog.source)
         .await?
         .read_image(&mut cog.source)

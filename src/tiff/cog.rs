@@ -27,6 +27,17 @@ pub struct Overview {
     pub is_full_resolution: bool,
 }
 
+#[derive(Debug)]
+pub struct OverviewDataReader {
+    pub width: u64,
+    pub height: u64,
+    pub nbands: u64,
+    tile_width: u64,
+    tile_height: u64,
+    tile_offsets: Vec<u64>,
+    tile_bytes_counts: Vec<u64>,
+}
+
 impl Overview {
     pub async fn from_ifd(
         ifd: ImageFileDirectory,
@@ -48,7 +59,7 @@ impl Overview {
             }
             value => return Err(Error::TagHasWrongType(IFDTag::PlanarConfiguration, value)),
         }
-        // Check BitsPerSample
+        // Check BitsPerSample is 8
         match ifd.get_tag_value(source, IFDTag::BitsPerSample).await? {
             IFDValue::Short(v) => {
                 if is_mask {
@@ -95,6 +106,90 @@ impl Overview {
             is_full_resolution,
         })
     }
+
+    pub async fn make_reader(
+        &self,
+        source: &mut CachedSource,
+    ) -> Result<OverviewDataReader, Error> {
+        // Note that as per the COG spec, those two arrays are likely *not* stored compactly next
+        // to the header, so this will cause additional reads to the source
+        let tile_offsets = self
+            .ifd
+            .get_vec_usize_tag_value(source, IFDTag::TileOffsets)
+            .await?
+            .iter()
+            // TODO: Read directly as u64
+            .map(|v| *v as u64)
+            .collect();
+        let tile_bytes_counts = self
+            .ifd
+            .get_vec_usize_tag_value(source, IFDTag::TileByteCounts)
+            .await?
+            .iter()
+            // TODO: Read directly as u64
+            .map(|v| *v as u64)
+            .collect();
+        Ok(OverviewDataReader {
+            width: self.width,
+            height: self.height,
+            nbands: self.nbands,
+            tile_width: self.tile_width,
+            tile_height: self.tile_height,
+            tile_offsets,
+            tile_bytes_counts,
+        })
+    }
+}
+
+impl OverviewDataReader {
+    // This pastes the given tile in the given output array, working on flattened version of the arrays
+    fn paste_tile(&self, out: &mut [u8], tile: &[u8], img_i: u64, img_j: u64) {
+        // Note that tiles can be larger than the image, so we need to ignore out of bounds pixels
+        for ti in 0..self.tile_height {
+            if img_i + ti >= self.height {
+                break;
+            }
+            for tj in 0..self.tile_width {
+                if img_j + tj >= self.width {
+                    break;
+                }
+                for b in 0..self.nbands {
+                    let out_offset =
+                        (img_i + ti) * self.width * self.nbands + (img_j + tj) * self.nbands + b;
+                    let tile_offset = ti * self.tile_width * self.nbands + tj * self.nbands + b;
+                    out[out_offset as usize] = tile[tile_offset as usize];
+                }
+            }
+        }
+    }
+
+    // TODO: Not sure caching make sense here
+    pub async fn read_image(&self, source: &mut CachedSource) -> Result<Vec<u8>, Error> {
+        let nbytes = self.width * self.height * self.nbands;
+        let mut data = vec![0u8; nbytes as usize];
+        let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
+        let tiles_down = (self.height + self.tile_height - 1) / self.tile_height;
+        for tile_i in 0..tiles_down {
+            for tile_j in 0..tiles_across {
+                // As per the spec, tiles are ordered left to right and top to bottom
+                let tile_index = tile_i * tiles_across + tile_j;
+                let offset = self.tile_offsets[tile_index as usize];
+                println!("tile_i={}, tile_j={}, offset={}", tile_i, tile_j, offset);
+                // Read compressed buf
+                // TODO: We assume PlanarConfiguration=1 here
+                let mut buf = vec![0u8; self.tile_bytes_counts[tile_index as usize] as usize];
+                source.read_exact(offset, &mut buf).await?;
+                // "Decompress" into data
+                self.paste_tile(
+                    &mut data,
+                    &buf,
+                    tile_i * self.tile_height,
+                    tile_j * self.tile_width,
+                );
+            }
+        }
+        Ok(data)
+    }
 }
 
 impl COG {
@@ -106,7 +201,7 @@ impl COG {
         let ifds = tiff_reader.ifds;
         let mut source = tiff_reader.source;
         for ifd in ifds {
-            // Check photometric interpretation indicates a RGB image
+            // Check photommetric interpretation to decide whether its the (RGB..) image or mask
             match ifd
                 .get_tag_value(&mut source, IFDTag::PhotometricInterpretation)
                 .await?
