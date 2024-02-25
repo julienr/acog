@@ -14,6 +14,8 @@ pub enum Error {
     RequiredGeoKeyNotFound(KeyID),
     GeoKeyHasWrongType(KeyID, KeyValue),
     UnsupportedProjection(String),
+    OutOfBoundsRead(String),
+    UnsupportedCOG(String),
 }
 
 impl From<io::Error> for Error {

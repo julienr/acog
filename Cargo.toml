@@ -25,3 +25,6 @@ required-features = ["json"]
 
 [[bin]]
 name = "cog_info"
+
+[[bin]]
+name = "extract_tile"

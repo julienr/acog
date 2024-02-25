@@ -1,12 +1,12 @@
 use acog::npy::write_to_npy;
-use acog::Error;
+use acog::{Error, ImageRect};
 use std::env;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     let args: Vec<String> = env::args().collect();
-    if args.len() <= 2 {
-        println!("Usage: <filename> <overview:int>");
+    if args.len() <= 2 || args.len() > 3 && args.len() != 7 {
+        println!("Usage: <filename> <overview:int> [i_from] [j_from] [i_to] [j_to]");
         return Err(Error::InvalidData(
             "Missing commandline argument".to_string(),
         ));
@@ -14,6 +14,7 @@ async fn main() -> Result<(), Error> {
 
     let filename = &args[1];
     let overview_index = args[2].parse::<usize>().unwrap();
+
     let mut cog = acog::open(filename).await?;
     println!(
         "cog width={}, height={}, nbands={}, overviews={}",
@@ -30,17 +31,35 @@ async fn main() -> Result<(), Error> {
         );
     }
     let overview = &cog.overviews[overview_index];
+
+    let rect = if args.len() > 3 {
+        ImageRect {
+            i_from: args[3].parse::<u64>().unwrap(),
+            j_from: args[4].parse::<u64>().unwrap(),
+            i_to: args[5].parse::<u64>().unwrap(),
+            j_to: args[6].parse::<u64>().unwrap(),
+        }
+    } else {
+        ImageRect {
+            i_from: 0,
+            j_from: 0,
+            i_to: overview.height,
+            j_to: overview.width,
+        }
+    };
+    println!("Extracting rect={:?}", rect);
+
     let img_data = overview
         .make_reader(&mut cog.source)
         .await?
-        .read_image(&mut cog.source)
+        .read_image_part(&mut cog.source, &rect)
         .await?;
     write_to_npy(
         "img.npy",
         img_data,
         [
-            overview.height as usize,
-            overview.width as usize,
+            rect.height() as usize,
+            rect.width() as usize,
             overview.nbands as usize,
         ],
     )?;

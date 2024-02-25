@@ -1,6 +1,6 @@
 /// Utilities related to EPSG
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum UnitOfMeasure {
     LinearMeter, // https://epsg.io/9001-units
     Unknown(u16),
@@ -15,7 +15,7 @@ impl UnitOfMeasure {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Crs {
     PseudoMercator,
     Unknown(u16),

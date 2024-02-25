@@ -78,6 +78,7 @@ pub enum IFDTag {
     TileWidth,
     TileOffsets,
     TileByteCounts,
+    Orientation,
     // TODO: See the COG spec for how to handle those values:
     // https://docs.ogc.org/is/21-026/21-026.html
     // 7.2.1. Requirement Reduced-Resolution Subfiles
@@ -112,6 +113,7 @@ fn decode_tag(tag: u16) -> IFDTag {
         278 => IFDTag::RowsPerStrip,
         273 => IFDTag::StripOffsets,
         279 => IFDTag::StripByteCounts,
+        274 => IFDTag::Orientation,
         258 => IFDTag::BitsPerSample,
         320 => IFDTag::Colormap,
         277 => IFDTag::SamplesPerPixel,

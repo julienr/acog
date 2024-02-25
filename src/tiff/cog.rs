@@ -1,6 +1,6 @@
 use super::geo_keys::GeoKeyDirectory;
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
-use super::proj::Georeference;
+use super::proj::{Georeference, Geotransform};
 use crate::sources::CachedSource;
 use crate::Error;
 
@@ -59,6 +59,25 @@ impl Overview {
             }
             value => return Err(Error::TagHasWrongType(IFDTag::PlanarConfiguration, value)),
         }
+        // We only support Orientation = 1 which means the image has origin at top-left
+        // (usual image processing axes)
+        // Since its defaults to 1 if undefined, it needs to either be defined as 1 or not defined
+        match ifd.get_tag_value(source, IFDTag::Orientation).await {
+            Ok(IFDValue::Short(v)) => {
+                if v[0] != 1 {
+                    return Err(Error::UnsupportedTagValue(
+                        IFDTag::Orientation,
+                        format!("{:?}", v),
+                    ));
+                }
+            }
+            Err(Error::RequiredTagNotFound(_)) => {
+                // Pass - defaults to 1 which is what we expect
+            }
+            Ok(other) => return Err(Error::TagHasWrongType(IFDTag::Orientation, other)),
+            Err(e) => return Err(e),
+        }
+
         // Check BitsPerSample is 8
         match ifd.get_tag_value(source, IFDTag::BitsPerSample).await? {
             IFDValue::Short(v) => {
@@ -141,54 +160,107 @@ impl Overview {
     }
 }
 
+// TODO: Use x/y instead ?
+// TODO: Use u32 here, u64 doesn't make sense for image dimensions
+#[derive(Debug)]
+pub struct ImageRect {
+    pub i_from: u64,
+    pub j_from: u64,
+    pub i_to: u64,
+    pub j_to: u64,
+}
+
+impl ImageRect {
+    pub fn width(&self) -> u64 {
+        self.j_to - self.j_from
+    }
+    pub fn height(&self) -> u64 {
+        self.i_to - self.i_from
+    }
+}
+
 impl OverviewDataReader {
-    // This pastes the given tile in the given output array, working on flattened version of the arrays
-    fn paste_tile(&self, out: &mut [u8], tile: &[u8], img_i: u64, img_j: u64) {
+    // Pastes the given tile at the right location in the output array. Both tile_rect and out_rect
+    // define the area covered by out/tile in the whole image
+    // Assumes both out_data and tile_data are packed as HwC (PlanarConfiguration=1)
+    fn paste_tile(
+        &self,
+        out_data: &mut [u8],
+        tile_data: &[u8],
+        out_rect: &ImageRect,
+        tile_rect: &ImageRect,
+    ) {
         // Note that tiles can be larger than the image, so we need to ignore out of bounds pixels
-        for ti in 0..self.tile_height {
-            if img_i + ti >= self.height {
-                break;
+        for ti in tile_rect.i_from..tile_rect.i_to {
+            if ti < out_rect.i_from || ti >= out_rect.i_to {
+                continue;
             }
-            for tj in 0..self.tile_width {
-                if img_j + tj >= self.width {
-                    break;
+            // TODO: Given we assert PlanarConfiguration, can use some memcpy below
+            for tj in tile_rect.j_from..tile_rect.j_to {
+                if tj < out_rect.j_from || tj >= out_rect.j_to {
+                    continue;
                 }
                 for b in 0..self.nbands {
-                    let out_offset =
-                        (img_i + ti) * self.width * self.nbands + (img_j + tj) * self.nbands + b;
-                    let tile_offset = ti * self.tile_width * self.nbands + tj * self.nbands + b;
-                    out[out_offset as usize] = tile[tile_offset as usize];
+                    let out_offset = (ti - out_rect.i_from) * out_rect.width() * self.nbands
+                        + (tj - out_rect.j_from) * self.nbands
+                        + b;
+                    let tile_offset = (ti - tile_rect.i_from) * self.tile_width * self.nbands
+                        + (tj - tile_rect.j_from) * self.nbands
+                        + b;
+                    out_data[out_offset as usize] = tile_data[tile_offset as usize];
                 }
             }
         }
     }
 
-    // TODO: Not sure caching make sense here
-    pub async fn read_image(&self, source: &mut CachedSource) -> Result<Vec<u8>, Error> {
-        let nbytes = self.width * self.height * self.nbands;
-        let mut data = vec![0u8; nbytes as usize];
+    pub async fn read_image_part(
+        &self,
+        source: &mut CachedSource,
+        rect: &ImageRect,
+    ) -> Result<Vec<u8>, Error> {
+        if rect.j_to > self.width {
+            return Err(Error::OutOfBoundsRead(format!(
+                "x_from + width out of bounds: {} > {}",
+                rect.j_to, self.width
+            )));
+        }
+        if rect.i_to > self.height {
+            return Err(Error::OutOfBoundsRead(format!(
+                "y_from + height out of bounds: {} > {}",
+                rect.i_to, self.height
+            )));
+        }
+        // TODO: May want the caller to pass the output vector instead of allocating
+        let nbytes = rect.width() * rect.height() * self.nbands;
+        let mut out_data = vec![0u8; nbytes as usize];
+        let start_tile_j = rect.j_from / self.tile_width;
+        let start_tile_i = rect.i_from / self.tile_height;
+        let end_tile_j = (rect.j_to as f64 / self.tile_width as f64).ceil() as u64;
+        let end_tile_i = (rect.i_to as f64 / self.tile_height as f64).ceil() as u64;
+
         let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
-        let tiles_down = (self.height + self.tile_height - 1) / self.tile_height;
-        for tile_i in 0..tiles_down {
-            for tile_j in 0..tiles_across {
+
+        for tile_i in start_tile_i..end_tile_i {
+            for tile_j in start_tile_j..end_tile_j {
                 // As per the spec, tiles are ordered left to right and top to bottom
                 let tile_index = tile_i * tiles_across + tile_j;
                 let offset = self.tile_offsets[tile_index as usize];
-                println!("tile_i={}, tile_j={}, offset={}", tile_i, tile_j, offset);
                 // Read compressed buf
                 // TODO: We assume PlanarConfiguration=1 here
-                let mut buf = vec![0u8; self.tile_bytes_counts[tile_index as usize] as usize];
-                source.read_exact(offset, &mut buf).await?;
+                let mut tile_data = vec![0u8; self.tile_bytes_counts[tile_index as usize] as usize];
+                source.read_exact(offset, &mut tile_data).await?;
+
+                let tile_rect = ImageRect {
+                    i_from: tile_i * self.tile_height,
+                    j_from: tile_j * self.tile_width,
+                    i_to: (tile_i + 1) * self.tile_height,
+                    j_to: (tile_j + 1) * self.tile_width,
+                };
                 // "Decompress" into data
-                self.paste_tile(
-                    &mut data,
-                    &buf,
-                    tile_i * self.tile_height,
-                    tile_j * self.tile_width,
-                );
+                self.paste_tile(&mut out_data, &tile_data, rect, &tile_rect);
             }
         }
-        Ok(data)
+        Ok(out_data)
     }
 }
 
@@ -298,5 +370,19 @@ impl COG {
 
     pub fn nbands(&self) -> u64 {
         self.overviews[0].nbands
+    }
+
+    pub fn compute_georeference_for_overview(&self, overview: &Overview) -> Georeference {
+        let scale_factor = overview.width as f64 / self.width() as f64;
+        Georeference {
+            crs: self.georeference.crs,
+            unit: self.georeference.unit,
+            geo_transform: Geotransform {
+                ul_x: self.georeference.geo_transform.ul_x,
+                ul_y: self.georeference.geo_transform.ul_y,
+                x_res: self.georeference.geo_transform.x_res / scale_factor,
+                y_res: self.georeference.geo_transform.y_res / scale_factor,
+            },
+        }
     }
 }

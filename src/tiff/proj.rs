@@ -48,16 +48,24 @@ impl Geotransform {
             ul_x: tie_points[3],
             ul_y: tie_points[4],
             x_res: pixel_scale[0],
-            y_res: pixel_scale[1],
+            // TODO: This should depend on the TIFF Orientation tag + CRS ?, but if not specified, it defaults to 1
+            // which means that y grows downwards, which requires a - here because the geographic CRS have
+            // y grow upwards (all of them ?)
+            y_res: -pixel_scale[1],
         })
+    }
+
+    /// Return the average pixel resolution in the unit of the Georeference
+    pub fn pixel_resolution(&self) -> f64 {
+        (self.x_res.abs() + self.y_res.abs()) / 2.0
     }
 }
 
 #[derive(Debug)]
 pub struct Georeference {
-    crs: Crs,
-    unit: UnitOfMeasure,
-    geo_transform: Geotransform,
+    pub crs: Crs,
+    pub unit: UnitOfMeasure,
+    pub geo_transform: Geotransform,
 }
 
 impl Georeference {

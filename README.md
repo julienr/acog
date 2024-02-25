@@ -15,3 +15,7 @@
 ## Useful GDAL commands
 
 `gdalwarp -of COG -t_srs "EPSG:3857" -co "COMPRESS=NONE" marina_cog_nocompress.tif marina_cog_nocompress_3857.tif`
+
+## Notes
+
+`cargo run --bin extract_tile -- example_data/local/marina_cog_nocompress_3857.tif 18 215827 137565`
