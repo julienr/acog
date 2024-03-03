@@ -265,7 +265,7 @@ impl OverviewDataReader {
 }
 
 impl COG {
-    pub async fn open(source_spec: &String) -> Result<COG, Error> {
+    pub async fn open(source_spec: &str) -> Result<COG, Error> {
         let tiff_reader = TIFFReader::open_from_source_spec(source_spec).await?;
         // https://docs.ogc.org/is/21-026/21-026.html#_requirement_reduced_resolution_subfiles
         let mut overviews: Vec<Overview> = vec![];

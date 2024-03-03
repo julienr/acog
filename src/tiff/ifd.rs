@@ -431,7 +431,7 @@ pub struct TIFFReader {
 }
 
 impl TIFFReader {
-    pub async fn open_from_source_spec(source_spec: &String) -> Result<TIFFReader, Error> {
+    pub async fn open_from_source_spec(source_spec: &str) -> Result<TIFFReader, Error> {
         let source_string = source_spec.to_string();
         if source_string.starts_with("/vsis3/") {
             let file_source =
