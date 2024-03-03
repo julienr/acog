@@ -202,7 +202,7 @@ fn pixel_to_meters(x: u64, y: u64, zoom: u32) -> (f64, f64) {
 }
 
 impl TMSTileCoords {
-    pub fn from_xyz(x: u64, y: u64, z: u32) -> TMSTileCoords {
+    pub fn from_zxy(z: u32, x: u64, y: u64) -> TMSTileCoords {
         TMSTileCoords {
             x,
             y: 2u64.pow(z) - y - 1,
@@ -325,7 +325,7 @@ mod tests {
             crate::COG::open(&"example_data/example_1_cog_3857_nocompress.tif".to_string())
                 .await
                 .unwrap();
-        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_xyz(549688, 365589, 20))
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549688, 365589))
             .await
             .unwrap();
 
@@ -347,7 +347,7 @@ mod tests {
         // )
         // .unwrap();
         let expected = crate::ppm::read_ppm(
-            "example_data/tests_expected/example_1_cog_3857_nocompress__549688_365589_20.ppm",
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549688_365589.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);

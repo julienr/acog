@@ -20,7 +20,7 @@ async fn main() -> Result<(), Error> {
     let y = args[4].parse::<u64>().unwrap();
 
     let mut cog = acog::COG::open(filename).await?;
-    let tile_data = extract_tile(&mut cog, TMSTileCoords::from_xyz(x, y, z)).await?;
+    let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
     write_to_npy(
         "img.npy",
         tile_data,
