@@ -9,9 +9,11 @@ edition = "2021"
 tokio = { version = "1.35.1", features = ["rt", "macros", "io-util", "fs"] }
 serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1", optional = true }
+axum = { version = "0.7.4", optional = true}
 
 [features]
 json = ["dep:serde", "dep:serde_json"]
+server = ["dep:axum", "tokio/rt-multi-thread"]
 
 [lib]
 name = "acog"
@@ -28,3 +30,7 @@ name = "cog_info"
 
 [[bin]]
 name = "extract_tile"
+
+[[bin]]
+name = "tileserver"
+required-features = ["server"]
