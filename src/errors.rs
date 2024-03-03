@@ -16,6 +16,7 @@ pub enum Error {
     UnsupportedProjection(String),
     OutOfBoundsRead(String),
     UnsupportedCOG(String),
+    OtherError(String),
 }
 
 impl From<io::Error> for Error {

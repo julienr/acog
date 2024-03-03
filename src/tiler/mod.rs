@@ -1,6 +1,5 @@
 use crate::epsg::Crs;
 use crate::epsg::UnitOfMeasure;
-use crate::sources::CachedSource;
 use crate::tiff::cog::ImageRect;
 use crate::Error;
 use crate::COG;
@@ -26,14 +25,6 @@ pub struct TMSTileCoords {
     pub x: u64,
     pub y: u64,
     pub z: u32,
-}
-
-#[derive(Debug)]
-struct BoundingBox {
-    pub xmin: f64,
-    pub xmax: f64,
-    pub ymin: f64,
-    pub ymax: f64,
 }
 
 const TILE_SIZE: u64 = 256;
@@ -211,18 +202,6 @@ fn pixel_to_meters(x: u64, y: u64, zoom: u32) -> (f64, f64) {
 }
 
 impl TMSTileCoords {
-    fn tile_bounds_3857(&self) -> BoundingBox {
-        let (xmin, ymin) = pixel_to_meters(self.x * TILE_SIZE, self.y * TILE_SIZE, self.z);
-        let (xmax, ymax) =
-            pixel_to_meters((self.x + 1) * TILE_SIZE, (self.y + 1) * TILE_SIZE, self.z);
-        BoundingBox {
-            xmin,
-            ymin,
-            xmax,
-            ymax,
-        }
-    }
-
     pub fn from_xyz(x: u64, y: u64, z: u32) -> TMSTileCoords {
         TMSTileCoords {
             x,
@@ -234,7 +213,7 @@ impl TMSTileCoords {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolution, BoundingBox, TMSTileCoords};
+    use super::*;
 
     fn float_eq(v1: f64, v2: f64, epsilon: f64) -> bool {
         let diff = (v1 - v2).abs();
@@ -268,6 +247,28 @@ mod tests {
         // For reference: https://wiki.openstreetmap.org/wiki/Zoom_levels
         assert_float_eq(resolution(17), 1.194, 1e-2);
         assert_float_eq(resolution(20), 0.149, 1e-2);
+    }
+
+    #[derive(Debug)]
+    struct BoundingBox {
+        pub xmin: f64,
+        pub xmax: f64,
+        pub ymin: f64,
+        pub ymax: f64,
+    }
+
+    impl TMSTileCoords {
+        fn tile_bounds_3857(&self) -> BoundingBox {
+            let (xmin, ymin) = pixel_to_meters(self.x * TILE_SIZE, self.y * TILE_SIZE, self.z);
+            let (xmax, ymax) =
+                pixel_to_meters((self.x + 1) * TILE_SIZE, (self.y + 1) * TILE_SIZE, self.z);
+            BoundingBox {
+                xmin,
+                ymin,
+                xmax,
+                ymax,
+            }
+        }
     }
 
     #[test]
@@ -316,5 +317,41 @@ mod tests {
             },
             1.0, // maptiler just gives integral coordinates
         );
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile() {
+        let mut cog =
+            crate::COG::open(&"example_data/example_1_cog_3857_nocompress.tif".to_string())
+                .await
+                .unwrap();
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_xyz(549688, 365589, 20))
+            .await
+            .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549688 365589
+        //   pyhton utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.clone(),
+        //     },
+        // )
+        // .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress__549688_365589_20.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data, expected.data);
     }
 }
