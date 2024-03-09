@@ -19,3 +19,16 @@
 ## Notes
 
 `cargo run --bin extract_tile -- example_data/local/marina_cog_nocompress_3857.tif 18 215827 137565`
+
+### Test in QGIS
+
+
+`cargo run -p example-tileserver`
+
+And then connect as a XYZ source in QGIS with the url:
+
+`http://localhost:3000/tile/example_data/local/marina_cog_nocompress_3857.tif/{z}/{x}/{y}`
+
+You can also debug tiles with e.g.:
+
+http://localhost:3000/example_data%2Flocal%2Fmarina_cog_nocompress_3857.tif/tile/18/215827/137565

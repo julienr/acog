@@ -1,3 +1,7 @@
+[workspace]
+members = [".", "examples/*"]
+default-members = [".", "examples/*"]
+
 [package]
 name = "acog"
 version = "0.1.0"
