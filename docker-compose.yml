@@ -1,0 +1,18 @@
+version: '3.4'
+
+services:
+  minio:
+    image: minio/minio:RELEASE.2024-03-10T02-53-48Z
+    entrypoint: sh
+    command: -c 'mkdir -p /data/testbucket && /usr/bin/minio server /data --console-address ":9001"'
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=V5NSAQUNLNZ5AP7VLLS6
+      - MINIO_ROOT_PASSWORD=bu0K3n0kEag8GKfckKPBg4Vu8O8EuYu2UO/wNfqI
+
+volumes:
+  miniodata:
