@@ -1,3 +1,5 @@
+use reqwest::header::ToStrError;
+
 use crate::tiff::geo_keys::{KeyID, KeyValue};
 use crate::tiff::ifd::{IFDTag, IFDValue};
 use std::io;
@@ -16,11 +18,24 @@ pub enum Error {
     UnsupportedProjection(String),
     OutOfBoundsRead(String),
     UnsupportedCOG(String),
+    ReqwestError(reqwest::Error),
     OtherError(String),
 }
 
 impl From<io::Error> for Error {
     fn from(value: io::Error) -> Self {
         Error::IO(value)
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(value: reqwest::Error) -> Self {
+        Error::ReqwestError(value)
+    }
+}
+
+impl From<ToStrError> for Error {
+    fn from(value: ToStrError) -> Self {
+        Error::OtherError(format!("ToStrError: {:?}", value))
     }
 }

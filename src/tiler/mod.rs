@@ -320,11 +320,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_tile() {
-        let mut cog =
-            crate::COG::open(&"example_data/example_1_cog_3857_nocompress.tif".to_string())
-                .await
-                .unwrap();
+    async fn test_extract_tile_local_file() {
+        let mut cog = crate::COG::open("example_data/example_1_cog_3857_nocompress.tif")
+            .await
+            .unwrap();
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549688, 365589))
+            .await
+            .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549688 365589
+        //   pyhton utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.clone(),
+        //     },
+        // )
+        // .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549688_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_minio() {
+        let mut cog = crate::COG::open("/vsis3/public/example_1_cog_3857_nocompress.tif")
+            .await
+            .unwrap();
         let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549688, 365589))
             .await
             .unwrap();

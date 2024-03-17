@@ -1,4 +1,4 @@
-use std::{fmt, io};
+use std::fmt;
 
 mod file;
 mod memory;
@@ -7,6 +7,8 @@ mod s3;
 pub use file::FileSource;
 pub use memory::MemorySource;
 pub use s3::S3Source;
+
+use crate::errors::Error;
 
 pub enum Source {
     File(FileSource),
@@ -26,7 +28,7 @@ impl fmt::Debug for Source {
 
 impl Source {
     /// See https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read_exact
-    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         match self {
             Source::File(s) => s.read_exact(offset, buf).await,
             Source::S3(s) => s.read_exact(offset, buf).await,

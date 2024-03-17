@@ -1,3 +1,4 @@
+use crate::errors::Error;
 use std::io;
 use std::io::SeekFrom;
 use tokio::{fs::File, io::AsyncReadExt, io::AsyncSeekExt};
@@ -13,8 +14,8 @@ impl FileSource {
     }
 
     /// See https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read_exact
-    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         self.file.seek(SeekFrom::Start(offset)).await?;
-        self.file.read_exact(buf).await
+        Ok(self.file.read(buf).await?)
     }
 }
