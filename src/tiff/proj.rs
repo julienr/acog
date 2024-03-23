@@ -1,7 +1,7 @@
 use super::geo_keys::{GeoKeyDirectory, KeyID};
 use super::ifd::{IFDTag, ImageFileDirectory};
 use crate::epsg::{Crs, UnitOfMeasure};
-use crate::sources::CachedSource;
+use crate::sources::Source;
 use crate::Error;
 
 /// A Geotransform, inspired by GDAL but enforcing north-up images
@@ -71,7 +71,7 @@ pub struct Georeference {
 impl Georeference {
     pub async fn decode(
         ifd: &ImageFileDirectory,
-        source: &mut CachedSource,
+        source: &mut Source,
         geo_keys: &GeoKeyDirectory,
     ) -> Result<Georeference, Error> {
         let model_type = geo_keys.get_short_key_value(KeyID::GTModelType)?;

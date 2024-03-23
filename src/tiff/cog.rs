@@ -1,7 +1,7 @@
 use super::geo_keys::GeoKeyDirectory;
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
 use super::proj::{Georeference, Geotransform};
-use crate::sources::CachedSource;
+use crate::sources::Source;
 use crate::Error;
 
 /// Functionality specific to reading Cloud Optimized Geotiffs
@@ -12,7 +12,7 @@ pub struct COG {
     #[allow(dead_code)]
     mask_overviews: Vec<Overview>,
     pub geo_keys: GeoKeyDirectory,
-    pub source: CachedSource,
+    pub source: Source,
     pub georeference: Georeference,
 }
 
@@ -41,7 +41,7 @@ pub struct OverviewDataReader {
 impl Overview {
     pub async fn from_ifd(
         ifd: ImageFileDirectory,
-        source: &mut CachedSource,
+        source: &mut Source,
         is_mask: bool,
     ) -> Result<Overview, Error> {
         // Check planar configuration is contiguous pixels
@@ -126,10 +126,7 @@ impl Overview {
         })
     }
 
-    pub async fn make_reader(
-        &self,
-        source: &mut CachedSource,
-    ) -> Result<OverviewDataReader, Error> {
+    pub async fn make_reader(&self, source: &mut Source) -> Result<OverviewDataReader, Error> {
         // Note that as per the COG spec, those two arrays are likely *not* stored compactly next
         // to the header, so this will cause additional reads to the source
         let tile_offsets = self
@@ -215,7 +212,7 @@ impl OverviewDataReader {
 
     pub async fn read_image_part(
         &self,
-        source: &mut CachedSource,
+        source: &mut Source,
         rect: &ImageRect,
     ) -> Result<Vec<u8>, Error> {
         if rect.j_to > self.width {

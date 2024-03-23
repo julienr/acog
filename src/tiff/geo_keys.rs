@@ -1,7 +1,7 @@
 use super::ifd::{
     IFDTag, ImageFileDirectory, GEO_ASCII_PARAMS_TAG, GEO_DOUBLE_PARAMS_TAG, GEO_KEY_DIRECTORY_TAG,
 };
-use crate::{sources::CachedSource, Error};
+use crate::{sources::Source, Error};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyID {
@@ -53,7 +53,7 @@ impl GeoKeyEntry {
     async fn decode(
         data: &[u16],
         ifd: &ImageFileDirectory,
-        source: &mut CachedSource,
+        source: &mut Source,
     ) -> Result<GeoKeyEntry, Error> {
         if data.len() < 4 {
             return Err(Error::NotACOG(format!(
@@ -177,7 +177,7 @@ impl GeoKeyDirectory {
 
     pub async fn from_ifd(
         ifd: &ImageFileDirectory,
-        source: &mut CachedSource,
+        source: &mut Source,
     ) -> Result<GeoKeyDirectory, Error> {
         let directory = ifd
             .get_vec_short_tag_value(source, IFDTag::GeoKeyDirectoryTag)

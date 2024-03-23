@@ -12,9 +12,9 @@ impl FileSource {
         Ok(FileSource { file })
     }
 
-    /// See https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read
-    pub async fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    /// See https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read_exact
+    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
         self.file.seek(SeekFrom::Start(offset)).await?;
-        self.file.read(buf).await
+        self.file.read_exact(buf).await
     }
 }

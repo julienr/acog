@@ -28,6 +28,5 @@ async fn main() -> Result<(), Error> {
             .into_bytes(),
     )?;
 
-    reader.print_cache_stats();
     Ok(())
 }
