@@ -217,13 +217,13 @@ impl OverviewDataReader {
     ) -> Result<Vec<u8>, Error> {
         if rect.j_to > self.width {
             return Err(Error::OutOfBoundsRead(format!(
-                "x_from + width out of bounds: {} > {}",
+                "rect.j_to out of bounds: {} > {}",
                 rect.j_to, self.width
             )));
         }
         if rect.i_to > self.height {
             return Err(Error::OutOfBoundsRead(format!(
-                "y_from + height out of bounds: {} > {}",
+                "rect.i_to out of bounds: {} > {}",
                 rect.i_to, self.height
             )));
         }
