@@ -1,7 +1,3 @@
-# TODO
-
-- [BigTiff support](https://www.awaresystems.be/imaging/tiff/bigtiff.html)
-
 # References
 
 - TIFF standard: http://download.osgeo.org/geotiff/spec/tiff6.pdf
