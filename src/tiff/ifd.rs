@@ -185,7 +185,7 @@ async fn read_u32(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Re
 }
 
 impl IFDEntryMetadata {
-    pub async fn decode(buf: &[u8; 12], byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
+    pub async fn decode(buf: &[u8], byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
         let tag = decode_u16([buf[0], buf[1]], byte_order);
         let field_type = decode_u16([buf[2], buf[3]], byte_order);
         let field_type = match field_type {
@@ -384,13 +384,15 @@ async fn read_image_file_directory(
     offset: u64,
     byte_order: ByteOrder,
 ) -> Result<(ImageFileDirectory, u32), Error> {
-    let fields_count = read_u16(source, offset, byte_order).await? as u64;
+    let fields_count = read_u16(source, offset, byte_order).await? as usize;
     let offset = offset + size_of::<u16>() as u64;
+    // Read the ifd fields info + next ifd offset all at once
+    let mut ifd_data = vec![0u8; fields_count * 12 + 4];
+    source.read_exact(offset, &mut ifd_data).await?;
     let mut entries: Vec<IFDEntryMetadata> = vec![];
     for i in 0..fields_count {
-        let mut buf = [0u8; 12];
-        source.read_exact(offset + i * 12, &mut buf).await?;
-        match IFDEntryMetadata::decode(&buf, byte_order).await? {
+        let buf: &[u8] = &ifd_data[i * 12..(i + 1) * 12];
+        match IFDEntryMetadata::decode(buf, byte_order).await? {
             RawEntryResult::KnownType(e) => entries.push(e),
             RawEntryResult::UnknownType(v) => {
                 println!("Unknown type {:?}", v);
@@ -400,7 +402,10 @@ async fn read_image_file_directory(
             }
         }
     }
-    let next_ifd_offset = read_u32(source, offset + fields_count * 12, byte_order).await?;
+    let next_ifd_offset = decode_u32(
+        ifd_data[fields_count * 12..].try_into().unwrap(),
+        byte_order,
+    );
     Ok((ImageFileDirectory { entries }, next_ifd_offset))
 }
 
