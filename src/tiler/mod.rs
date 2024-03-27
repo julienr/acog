@@ -121,13 +121,21 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<V
     // As a first step, read the corresponding area from the overview
     let overview_area_ul = tile_pixel_to_overview_pixel(0, 0);
     let overview_area_br = tile_pixel_to_overview_pixel(TILE_SIZE, TILE_SIZE);
-    // TODO: Clip ImageRect to overview bounds
+
     let overview_area_rect = ImageRect {
         j_from: std::cmp::max(0, overview_area_ul.x as u64),
         i_from: std::cmp::max(0, overview_area_br.y.ceil() as u64),
-        j_to: std::cmp::min(overview.height, overview_area_br.x.ceil() as u64),
-        i_to: std::cmp::min(overview.width, overview_area_ul.y as u64),
+        j_to: std::cmp::min(overview.width, overview_area_br.x.ceil() as u64),
+        i_to: std::cmp::min(overview.height, overview_area_ul.y as u64),
     };
+
+    // Out of image tile => return transparent
+    if overview_area_rect.j_to <= overview_area_rect.j_from
+        || overview_area_rect.i_to <= overview_area_rect.i_from
+    {
+        // TODO: Add test for this (out of image tile should return transparent)
+        return Ok(vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize]);
+    }
     let overview_area_data = overview
         .make_reader(&mut cog.source)
         .await?
@@ -144,17 +152,27 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<V
             // TODO: Naive nearest neighbor => replace by bilinear (or make this selectable)
             // Compute the 3857/projeced position of that pixel
             let overview_pixel = tile_pixel_to_overview_pixel(j, i);
+
+            // If we are outside of the overview area rect, leave pixels black.
+            // Note that we have a small 'margin' of one pixel to avoid black borders on the side
+            // of some tiles
+            let margin_px = 1.0;
+            if overview_pixel.x < (overview_area_rect.j_from as f64 - margin_px)
+                || overview_pixel.x > (overview_area_rect.j_to as f64 + margin_px)
+            {
+                continue;
+            }
+            if overview_pixel.y < (overview_area_rect.i_from as f64 - margin_px)
+                || overview_pixel.y > (overview_area_rect.i_to as f64 + margin_px)
+            {
+                continue;
+            }
+            // We clamp again just out of caution to avoid out of bounds due to rounding errors or something
             let overview_area_x = (overview_pixel.x as i64 - overview_area_rect.j_from as i64)
                 .clamp(0, overview_area_rect.width() as i64 - 1);
             let overview_area_y = (overview_pixel.y as i64 - overview_area_rect.i_from as i64)
                 .clamp(0, overview_area_rect.height() as i64 - 1);
-            // Avoid out of bounds
-            if overview_area_x < 0 || overview_area_x >= overview.width as i64 {
-                continue;
-            }
-            if overview_area_y < 0 || overview_area_y >= overview.height as i64 {
-                continue;
-            }
+
             // We need to flip i here because i, j are in TMS coordinates with i/y growing north
             // but in raster space, y is growing south
             let i = TILE_SIZE - i - 1;
@@ -320,11 +338,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_tile_local_file() {
+    async fn test_extract_tile_local_file_full_tile() {
+        // Tests extracting a tile that is fully covered by the image
         let mut cog = crate::COG::open("example_data/example_1_cog_3857_nocompress.tif")
             .await
             .unwrap();
-        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549688, 365589))
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549687, 365589))
             .await
             .unwrap();
 
@@ -332,12 +352,12 @@ mod tests {
         // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
         // extracts and update the expected data accordingly. E.g.:
         //
-        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549688 365589
-        //   pyhton utils/npyshow.py rio_tile.npy
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
+        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
-        //     &ImageBuffer {
+        //     &crate::image::ImageBuffer {
         //         width: 256,
         //         height: 256,
         //         nbands: 3,
@@ -346,7 +366,44 @@ mod tests {
         // )
         // .unwrap();
         let expected = crate::ppm::read_ppm(
-            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549688_365589.ppm",
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_partial_tile() {
+        // Tests extracting a tile that is only partially covered by the image
+        let mut cog = crate::COG::open("example_data/example_1_cog_3857_nocompress.tif")
+            .await
+            .unwrap();
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549689, 365591))
+            .await
+            .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549689 365591
+        //   python utils/npyshow.py rio_tile.npy
+        //
+        crate::ppm::write_to_ppm(
+            "_test_img.ppm",
+            &crate::image::ImageBuffer {
+                width: 256,
+                height: 256,
+                nbands: 3,
+                data: tile_data.clone(),
+            },
+        )
+        .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549689_365591.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);
@@ -359,7 +416,7 @@ mod tests {
         let mut cog = crate::COG::open("/vsis3/public/example_1_cog_3857_nocompress.tif")
             .await
             .unwrap();
-        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549688, 365589))
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549687, 365589))
             .await
             .unwrap();
 
@@ -367,12 +424,12 @@ mod tests {
         // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
         // extracts and update the expected data accordingly. E.g.:
         //
-        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549688 365589
-        //   pyhton utils/npyshow.py rio_tile.npy
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
+        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
-        //     &ImageBuffer {
+        //     &crate::image::ImageBuffer {
         //         width: 256,
         //         height: 256,
         //         nbands: 3,
@@ -381,7 +438,7 @@ mod tests {
         // )
         // .unwrap();
         let expected = crate::ppm::read_ppm(
-            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549688_365589.ppm",
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);
