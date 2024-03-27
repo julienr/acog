@@ -27,5 +27,7 @@ async fn main() -> Result<(), Error> {
         // TODO: Remove hardcoded tile size
         [256, 256, 3],
     )?;
+
+    println!("Stats: {}", cog.get_stats());
     Ok(())
 }

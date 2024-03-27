@@ -15,4 +15,8 @@ impl MemorySource {
         buf[..(end - offset as usize)].copy_from_slice(&self.buffer[offset as usize..end as usize]);
         Ok(end - offset as usize)
     }
+
+    pub fn get_stats(&self) -> String {
+        "".to_string()
+    }
 }

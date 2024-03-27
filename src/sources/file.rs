@@ -18,4 +18,8 @@ impl FileSource {
         self.file.seek(SeekFrom::Start(offset)).await?;
         Ok(self.file.read(buf).await?)
     }
+
+    pub fn get_stats(&self) -> String {
+        "".to_string()
+    }
 }

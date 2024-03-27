@@ -35,4 +35,12 @@ impl Source {
             Source::Memory(s) => s.read_exact(offset, buf).await,
         }
     }
+
+    pub fn get_stats(&self) -> String {
+        match self {
+            Source::File(s) => s.get_stats(),
+            Source::S3(s) => s.get_stats(),
+            Source::Memory(s) => s.get_stats(),
+        }
+    }
 }

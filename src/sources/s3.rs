@@ -4,10 +4,15 @@ use crate::errors::Error;
 use bytes::Buf;
 use reqwest::Client;
 
+#[derive(Debug, Default)]
+struct Stats {
+    requests_count: usize,
+}
+
 pub struct S3Source {
     client: Client,
     blob_name: String,
-    // TODO: Add stats about requests ?
+    stats: Stats,
 }
 
 impl S3Source {
@@ -16,6 +21,7 @@ impl S3Source {
         Ok(S3Source {
             client,
             blob_name: filename.to_string(),
+            stats: Default::default(),
         })
     }
 
@@ -23,8 +29,9 @@ impl S3Source {
     pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         // TODO: Take endpoint from env var
         let url = format!("http://localhost:9000/{}", self.blob_name);
-        let do_request = |from: u64, to: u64| {
+        let mut do_request = |from: u64, to: u64| {
             println!("Range request: {}-{}", from, to);
+            self.stats.requests_count += 1;
             self.client
                 .get(url.clone())
                 .header("Range", format!("bytes={}-{}", from, to))
@@ -55,6 +62,10 @@ impl S3Source {
         let len_to_copy = min(body_len, buf.len());
         body.copy_to_slice(&mut buf[0..len_to_copy]);
         Ok(len_to_copy)
+    }
+
+    pub fn get_stats(&self) -> String {
+        format!("{:?}", self.stats)
     }
 }
 

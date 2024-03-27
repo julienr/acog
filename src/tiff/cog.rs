@@ -382,4 +382,9 @@ impl COG {
             },
         }
     }
+
+    // Obtain some statistics to be reported to the user
+    pub fn get_stats(&self) -> String {
+        self.source.get_stats()
+    }
 }
