@@ -25,8 +25,7 @@ impl S3Source {
         })
     }
 
-    /// See https://docs.rs/tokio/latest/tokio/io/trait.AsyncReadExt.html#method.read_exact
-    pub async fn read_exact(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+    pub async fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         // TODO: Take endpoint from env var
         let url = format!("http://localhost:9000/{}", self.blob_name);
         let mut do_request = |from: u64, to: u64| {
@@ -43,6 +42,19 @@ impl S3Source {
             // it could just reply with 200 and the whole document, but we don't support/want this
             // here
             if resp.status().as_u16() == 206 {
+                // Note that EOF is implicitely handled here because if we do a partial past EOF read, we'll
+                // still get a 206 but we can parse the "Content-Range" header to get file size. E.g.:
+                //
+                //    curl -v -r 558379745-558379761 http://localhost:9000/public/local/marina_cog_nocompress_3857.tif
+                //    ...
+                //    Content-Range: bytes 558379745-558379749/558379750
+                //
+                // But this is not necessary, because the server will just return the data until EOF, so
+                // our logic below transparently handles this
+                //
+                // Note that if you do a completely invalid read (both start and end past EOF), then most server
+                // will rightly response with a 416 - but that's a sign of a logic error here, so we do
+                // error out in this case
                 resp.bytes().await?
             } else {
                 return Err(Error::OtherError(format!(
@@ -53,12 +65,7 @@ impl S3Source {
             }
         };
 
-        // let mut body = resp.bytes().await?;
         let body_len = body.remaining();
-        // We need to handle incomplete response because copy_to_slice will panic if buf.remaining() < buf.len()
-        if body.remaining() < buf.len() {
-            // TODO: Should we raise an error or return incomplete read ? Incomplete read seem to make sense
-        }
         let len_to_copy = min(body_len, buf.len());
         body.copy_to_slice(&mut buf[0..len_to_copy]);
         Ok(len_to_copy)
@@ -72,6 +79,8 @@ impl S3Source {
 #[cfg(test)]
 mod tests {
     use crate as acog;
+
+    /// There is also a tiler "integration test" in `test_extract_tile_minio`
 
     /// These tests require minio running with the setup from the `docker-compose.yml` file
     #[tokio::test]

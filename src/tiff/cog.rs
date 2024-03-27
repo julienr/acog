@@ -245,7 +245,10 @@ impl OverviewDataReader {
                 // Read compressed buf
                 // TODO: We assume PlanarConfiguration=1 here
                 let mut tile_data = vec![0u8; self.tile_bytes_counts[tile_index as usize] as usize];
-                source.read_exact(offset, &mut tile_data).await?;
+                // We use read_direct here to read the whole tile at once
+                // TODO: Can this lead to too huge request depending on tile size ? Or does COG always
+                // guarantee reasonable tile size ?
+                source.read_exact_direct(offset, &mut tile_data).await?;
 
                 let tile_rect = ImageRect {
                     i_from: tile_i * self.tile_height,
@@ -386,5 +389,41 @@ impl COG {
     // Obtain some statistics to be reported to the user
     pub fn get_stats(&self) -> String {
         self.source.get_stats()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ImageRect;
+
+    #[tokio::test]
+    async fn test_overview_reader_direct_reads() {
+        // Test that reading from overview uses direct reads and not chunked once
+        let mut cog =
+            crate::COG::open("example_data/example_1_cog_3857_nocompress_blocksize_256.tif")
+                .await
+                .unwrap();
+        let overview = &cog.overviews[1];
+        let ovr_reader = overview.make_reader(&mut cog.source).await.unwrap();
+        assert_eq!(overview.width, 185);
+        assert_eq!(overview.height, 138);
+        ovr_reader
+            .read_image_part(
+                &mut cog.source,
+                &ImageRect {
+                    i_from: 0,
+                    j_from: 0,
+                    i_to: 100,
+                    j_to: 100,
+                },
+            )
+            .await
+            .unwrap();
+        let stats = cog.source.get_stats();
+        // We should have one read for the IFD and then one direct read for the data.
+        // If you change the direct data read into a chunked read, that would yield
+        // 256 * 256 * 3 / 16384 = ~12 reads
+        assert!(stats.contains("read_counts=2"));
+        // TODO: Could expose stats cache and check those as well
     }
 }

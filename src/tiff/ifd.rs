@@ -3,7 +3,7 @@ use std::mem::size_of;
 
 use super::low_level::*;
 use crate::errors::Error;
-use crate::sources::{self, Source};
+use crate::sources::Source;
 
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
@@ -419,17 +419,9 @@ pub struct TIFFReader {
 
 impl TIFFReader {
     pub async fn open_from_source_spec(source_spec: &str) -> Result<TIFFReader, Error> {
-        let source_string = source_spec.to_string();
-        if source_string.starts_with("/vsis3/") {
-            let file_source =
-                sources::S3Source::new(source_string.strip_prefix("/vsis3/").unwrap()).await?;
-            let reader = Self::open_from_source(sources::Source::S3(file_source)).await?;
-            Ok(reader)
-        } else {
-            let file_source = sources::FileSource::new(&source_string).await?;
-            let reader = Self::open_from_source(sources::Source::File(file_source)).await?;
-            Ok(reader)
-        }
+        let source = Source::new_from_source_spec(source_spec).await?;
+        let reader = Self::open_from_source(source).await?;
+        Ok(reader)
     }
     pub async fn open_from_source(mut source: Source) -> Result<TIFFReader, Error> {
         // Byte order & magic number check
