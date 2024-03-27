@@ -392,16 +392,16 @@ mod tests {
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549689 365591
         //   python utils/npyshow.py rio_tile.npy
         //
-        crate::ppm::write_to_ppm(
-            "_test_img.ppm",
-            &crate::image::ImageBuffer {
-                width: 256,
-                height: 256,
-                nbands: 3,
-                data: tile_data.clone(),
-            },
-        )
-        .unwrap();
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &crate::image::ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.clone(),
+        //     },
+        // )
+        // .unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549689_365591.ppm",
         )
