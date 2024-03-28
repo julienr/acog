@@ -1,0 +1,65 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "process",
+            "command": "cargo",
+            "args": [
+                "clippy"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo clippy"
+        },
+        {
+            "type": "process",
+            "command": "cargo",
+            "args": [
+                "build"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo build"
+        },
+        {
+            "type": "process",
+            "command": "cargo",
+            "args": [
+                "check"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo check"
+        },
+        {
+            "type": "process",
+            "command": "cargo",
+            "args": [
+                "test"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo test"
+        }
+        {
+            "type": "process",
+            "command": "cargo",
+            "args": [
+                "fmt"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "group": "build",
+            "label": "rust: cargo fmt"
+        }
+    ]
+}
