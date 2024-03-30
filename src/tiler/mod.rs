@@ -388,7 +388,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_tile_local_file_full_tile_multiple_overviews() {
-        // Tests extracting a tile that is fully covered by the image
+        // Test extracting a tile that requires looking at an overview > 0
         let mut cog =
             crate::COG::open("example_data/example_1_cog_3857_nocompress_blocksize_256.tif")
                 .await
