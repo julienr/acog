@@ -63,6 +63,8 @@ impl SourceKind {
 
 const CHUNK_SIZE: usize = 16384; // 16 kB, like GDAL `CPL_VSIL_CURL_CHUNK_SIZE`
 
+const MAX_CACHED_CHUNKS: usize = 100;
+
 /// Sources support chunked reading mode with caching and direct reading.
 /// - Chunked reading with caching should be uses to tread the header + IFDs
 /// - Direct reading should be used to read image data
@@ -109,6 +111,13 @@ impl ChunkCache {
         source_kind: &mut SourceKind,
         chunk_index: u32,
     ) -> Result<&[u8; CHUNK_SIZE], Error> {
+        if self.chunks_cache.len() >= MAX_CACHED_CHUNKS {
+            // Here, a LRU cache would probably be a better idea. For now we just evict randomly
+            // a page for simplicity's sake
+            let key = *self.chunks_cache.keys().next().unwrap();
+            self.chunks_cache.remove(&key);
+        }
+
         match self.chunks_cache.entry(chunk_index) {
             std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
             std::collections::hash_map::Entry::Vacant(e) => {
@@ -131,7 +140,6 @@ impl ChunkCache {
                 return Ok(e.insert(chunk));
             }
         }
-        // TODO: Implement MAX_CACHE_CHUNKS and remove least recently used ones
     }
 
     pub async fn read_exact(
