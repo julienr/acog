@@ -23,7 +23,7 @@ async fn main() -> Result<(), Error> {
     let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
     write_to_npy(
         "img.npy",
-        tile_data,
+        tile_data.data,
         // TODO: Remove hardcoded tile size
         [256, 256, 3],
     )?;

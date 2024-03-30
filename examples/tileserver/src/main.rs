@@ -64,9 +64,9 @@ async fn get_tile(filename: &str, z: u32, x: u64, y: u64) -> Result<HandlerRespo
     // SECURITY TODO: Ensure filename contains no '..' / contain it to current directory or well-known files
     let mut cog = acog::COG::open(filename).await?;
     let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
-    // TODO: Encode to jpeg using turbojpeg and send back data
+    // Encode to jpeg using turbojpeg and send back data
     let img = turbojpeg::Image::<&[u8]> {
-        pixels: &tile_data,
+        pixels: &tile_data.data,
         width: 256,
         height: 256,
         pitch: 256 * 3,

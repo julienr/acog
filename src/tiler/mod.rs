@@ -80,7 +80,13 @@ struct Point2D<T> {
     y: T,
 }
 
-pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<Vec<u8>, Error> {
+pub struct TileData {
+    pub data: Vec<u8>,
+    #[allow(dead_code)]
+    overview_index: usize,
+}
+
+pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<TileData, Error> {
     check_cog_is_3857(cog)?;
 
     let overview_index = find_best_overview(cog, tile_coords.z);
@@ -134,7 +140,10 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<V
         || overview_area_rect.i_to <= overview_area_rect.i_from
     {
         // TODO: Add test for this (out of image tile should return transparent)
-        return Ok(vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize]);
+        return Ok(TileData {
+            data: vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize],
+            overview_index,
+        });
     }
     let overview_area_data = overview
         .make_reader(&mut cog.source)
@@ -185,7 +194,10 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<V
         }
     }
 
-    Ok(tile_data)
+    Ok(TileData {
+        data: tile_data,
+        overview_index,
+    })
 }
 
 // According to the spheroid used by 3857, see https://epsg.io/3857
@@ -371,7 +383,47 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data, expected.data);
+        assert_eq!(tile_data.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_full_tile_multiple_overviews() {
+        // Tests extracting a tile that is fully covered by the image
+        let mut cog =
+            crate::COG::open("example_data/example_1_cog_3857_nocompress_blocksize_256.tif")
+                .await
+                .unwrap();
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(17, 68710, 45698))
+            .await
+            .unwrap();
+        // This should have read from the second overview - not the full res image
+        assert_eq!(tile_data.overview_index, 1);
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress_blocksize_256.tif 17 68710 45698
+        //   python utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &crate::image::ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.data.clone(),
+        //     },
+        // )
+        // .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress_blocksize_256__17_68710_45698.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.data, expected.data);
     }
 
     #[tokio::test]
@@ -408,7 +460,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data, expected.data);
+        assert_eq!(tile_data.data, expected.data);
     }
 
     #[tokio::test]
@@ -443,6 +495,6 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data, expected.data);
+        assert_eq!(tile_data.data, expected.data);
     }
 }
