@@ -7,9 +7,11 @@ name = "acog"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "proj",
  "reqwest",
  "serde",
  "serde_json",
+ "testutils",
  "tokio",
 ]
 
@@ -666,6 +668,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "proj"
+version = "0.1.0"
+dependencies = [
+ "testutils",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -921,6 +930,10 @@ dependencies = [
  "rustix",
  "windows-sys 0.52.0",
 ]
+
+[[package]]
+name = "testutils"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

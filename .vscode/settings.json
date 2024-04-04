@@ -1,6 +1,7 @@
 {
   "rust-analyzer.linkedProjects": [
-    "./examples/tileserver/Cargo.toml"
+    "./examples/tileserver/Cargo.toml",
+    "./lib/proj/Cargo.toml"
   ],
   "[rust]": {
     "editor.defaultFormatter": "rust-lang.rust-analyzer", // Makes the magic

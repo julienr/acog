@@ -1,0 +1,10 @@
+[package]
+name = "proj"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "proj"
+
+[dev-dependencies]
+testutils = { path = "../testutils" }

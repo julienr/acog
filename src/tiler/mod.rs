@@ -244,23 +244,7 @@ impl TMSTileCoords {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn float_eq(v1: f64, v2: f64, epsilon: f64) -> bool {
-        let diff = (v1 - v2).abs();
-        diff <= epsilon
-    }
-
-    fn assert_float_eq(v1: f64, v2: f64, epsilon: f64) {
-        if !float_eq(v1, v2, epsilon) {
-            panic!(
-                "{} != {} (difference={}, epsilon={})",
-                v1,
-                v2,
-                (v1 - v2).abs(),
-                epsilon
-            );
-        }
-    }
+    use testutils::*;
 
     fn assert_bbox_equal(actual: &BoundingBox, expected: &BoundingBox, epsilon: f64) {
         if !(float_eq(actual.xmin, expected.xmin, epsilon)
