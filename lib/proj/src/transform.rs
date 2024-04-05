@@ -50,6 +50,12 @@ impl Transform {
         let b = unsafe { bindings::proj_trans(self.projection, bindings::PJ_DIRECTION_PJ_FWD, a) };
         unsafe { (b.xy.x, b.xy.y) }
     }
+
+    pub fn inverse_transform(&self, point: Coordinate) -> Coordinate {
+        let a = unsafe { bindings::proj_coord(point.0, point.1, 0.0, 0.0) };
+        let b = unsafe { bindings::proj_trans(self.projection, bindings::PJ_DIRECTION_PJ_INV, a) };
+        unsafe { (b.xy.x, b.xy.y) }
+    }
 }
 
 impl Drop for Transform {
@@ -60,6 +66,8 @@ impl Drop for Transform {
 
 #[cfg(test)]
 mod tests {
+    use testutils::assert_float_eq;
+
     use super::*;
     /// The point of the tests below is not to retest proj, but mostly to sanity check
     /// that the bindings are working corectly
@@ -67,20 +75,31 @@ mod tests {
     /// Handy tools to generate tests:
     /// https://epsg.io/transform#s_srs=4326&t_srs=3857&x=NaN&y=NaN
 
+    fn assert_coordinate_eq(c1: Coordinate, c2: Coordinate, epsilon: f64) {
+        assert_float_eq(c1.0, c2.0, epsilon);
+        assert_float_eq(c1.1, c2.1, epsilon);
+    }
+
     #[test]
     fn test_transform_4326_4326() {
         let t = Transform::new(4326, 4326).unwrap();
-        let v = t.transform((42.0, -43.0));
-        assert_eq!(v.0, 42.0);
-        assert_eq!(v.1, -43.0);
+        let v0 = (42.0, -43.0);
+        let v1 = t.transform(v0);
+        assert_float_eq(v1.0, 42.0, 1e-5);
+        assert_float_eq(v1.1, -43.0, 1e-5);
+        let v2 = t.inverse_transform(v1);
+        assert_coordinate_eq(v2, v0, 1e-5);
     }
 
     #[test]
     fn test_transform_4326_3857() {
         // https://epsg.io/transform#s_srs=4326&t_srs=3857&x=42.0000000&y=-43.0000000
         let t = Transform::new(4326, 3857).unwrap();
-        let v = t.transform((42.0, -43.0));
-        assert_eq!(v.0, 4675418.613317491);
-        assert_eq!(v.1, -5311971.846945472);
+        let v0 = (42.0, -43.0);
+        let v1 = t.transform(v0);
+        assert_float_eq(v1.0, 4675418.613317491, 1e-5);
+        assert_float_eq(v1.1, -5311971.846945472, 1e-5);
+        let v2 = t.inverse_transform(v1);
+        assert_coordinate_eq(v2, v0, 1e-5);
     }
 }
