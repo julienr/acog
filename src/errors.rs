@@ -19,6 +19,7 @@ pub enum Error {
     OutOfBoundsRead(String),
     UnsupportedCOG(String),
     ReqwestError(reqwest::Error),
+    ProjError(proj::Error),
     OtherError(String),
 }
 
@@ -37,5 +38,11 @@ impl From<reqwest::Error> for Error {
 impl From<ToStrError> for Error {
     fn from(value: ToStrError) -> Self {
         Error::OtherError(format!("ToStrError: {:?}", value))
+    }
+}
+
+impl From<proj::Error> for Error {
+    fn from(value: proj::Error) -> Self {
+        Error::ProjError(value)
     }
 }

@@ -1,8 +1,9 @@
-use crate::epsg::Crs;
-use crate::epsg::UnitOfMeasure;
 use crate::tiff::cog::ImageRect;
 use crate::Error;
 use crate::COG;
+
+use self::warp::Warper;
+mod warp;
 
 /// TMS tile coordinates
 /// Small notes on coordinate systems here.
@@ -11,7 +12,7 @@ use crate::COG;
 /// - The TMS tile coordinates have x grow east left and y north
 ///
 /// Although XYZ is more popular to server tiles (that's what google maps/mapbox/osm use),
-/// we use TMS internally for computations becaue the axis are going in the same direction so there
+/// we use TMS internally for computations because the axis are going in the same direction so there
 /// is less "flipping y" happening.
 ///
 /// The XYZ to TMS conversion is fairly easy though: y_tms = 2 ** zoom - y_xyz - 1
@@ -27,30 +28,7 @@ pub struct TMSTileCoords {
     pub z: u32,
 }
 
-const TILE_SIZE: u64 = 256;
-
-fn check_cog_is_3857(cog: &COG) -> Result<(), Error> {
-    match cog.georeference.crs {
-        Crs::PseudoMercator => (),
-        Crs::Unknown(v) => {
-            return Err(Error::UnsupportedProjection(format!(
-                "Currently only support 3857, got {:?}",
-                v
-            )));
-        }
-    };
-
-    match cog.georeference.unit {
-        UnitOfMeasure::LinearMeter => (),
-        UnitOfMeasure::Unknown(v) => {
-            return Err(Error::UnsupportedProjection(format!(
-                "Currently only support linear meters, got {:?}",
-                v
-            )));
-        }
-    };
-    Ok(())
-}
+pub const TILE_SIZE: u64 = 256;
 
 fn find_best_overview(cog: &COG, zoom: u32) -> usize {
     let tile_res_m = resolution(zoom);
@@ -75,9 +53,59 @@ fn find_best_overview(cog: &COG, zoom: u32) -> usize {
     selected_overview_index
 }
 
-struct Point2D<T> {
+// TODO: Move to math.rs
+#[derive(Copy, Clone, Debug)]
+pub struct Vec2<T> {
     x: T,
     y: T,
+}
+
+pub type Vec2f = Vec2<f64>;
+
+pub fn vec2f(x: f64, y: f64) -> Vec2f {
+    Vec2 { x, y }
+}
+
+impl<T> From<(T, T)> for Vec2<T> {
+    fn from(value: (T, T)) -> Self {
+        Vec2 {
+            x: value.0,
+            y: value.1,
+        }
+    }
+}
+
+impl<T: std::ops::Sub<Output = T> + std::marker::Copy> std::ops::Sub for Vec2<T> {
+    type Output = Self;
+
+    fn sub(self, rhs: Vec2<T>) -> Self::Output {
+        Vec2 {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
+        }
+    }
+}
+
+impl<T: std::ops::Add<Output = T>> std::ops::Add for Vec2<T> {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Vec2 {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
+impl<T: std::ops::Mul<Output = T> + std::marker::Copy> std::ops::Mul<T> for Vec2<T> {
+    type Output = Self;
+
+    fn mul(self, rhs: T) -> Self::Output {
+        Vec2 {
+            x: self.x * rhs,
+            y: self.y * rhs,
+        }
+    }
 }
 
 pub struct TileData {
@@ -87,34 +115,9 @@ pub struct TileData {
 }
 
 pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<TileData, Error> {
-    check_cog_is_3857(cog)?;
-
     let overview_index = find_best_overview(cog, tile_coords.z);
     let overview = &cog.overviews[overview_index];
     let overview_georef = cog.compute_georeference_for_overview(overview);
-
-    let tile_pixel_to_overview_pixel = |px: u64, py: u64| -> Point2D<f64> {
-        let (x_proj, y_proj) = pixel_to_meters(
-            tile_coords.x * TILE_SIZE + px,
-            tile_coords.y * TILE_SIZE + py,
-            tile_coords.z,
-        );
-        // Reverse the geotransform, see https://gdal.org/tutorials/geotransforms_tut.html
-        // x_proj = ul_x + overview_pixel_x * x_res;
-        // y_proj = ul_y + overview_pixel_y * y_res;
-        //
-        // Here we reverse that to find overview_pixel_ from x/y_proj
-        // => (x_proj - ul_x) / x_res = overview_pixel_x
-        let overview_pixel_x =
-            (x_proj - overview_georef.geo_transform.ul_x) / overview_georef.geo_transform.x_res;
-
-        let overview_pixel_y =
-            (y_proj - overview_georef.geo_transform.ul_y) / overview_georef.geo_transform.y_res;
-        Point2D {
-            x: overview_pixel_x,
-            y: overview_pixel_y,
-        }
-    };
 
     let nbands = overview.nbands;
     if nbands < 3 {
@@ -125,8 +128,13 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     }
 
     // As a first step, read the corresponding area from the overview
-    let overview_area_ul = tile_pixel_to_overview_pixel(0, 0);
-    let overview_area_br = tile_pixel_to_overview_pixel(TILE_SIZE, TILE_SIZE);
+    let (overview_area_ul, overview_area_br) = {
+        let warper = Warper::new(&overview_georef)?;
+        let image_bbox = warper.compute_image_bounding_box(&tile_coords);
+        let bbox_ul = vec2f(image_bbox.xmin, image_bbox.ymax);
+        let bbox_br = vec2f(image_bbox.xmax, image_bbox.ymin);
+        (bbox_ul, bbox_br)
+    };
 
     let overview_area_rect = ImageRect {
         j_from: std::cmp::max(0, overview_area_ul.x as u64),
@@ -155,41 +163,44 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     // just read
     // RGB image
     let mut tile_data: Vec<u8> = vec![0; (TILE_SIZE * TILE_SIZE * 3) as usize];
-    for i in 0..TILE_SIZE {
-        // TODO: Given we assert PlanarConfiguration, can use some memcpy below
-        for j in 0..TILE_SIZE {
-            // TODO: Naive nearest neighbor => replace by bilinear (or make this selectable)
-            // Compute the 3857/projeced position of that pixel
-            let overview_pixel = tile_pixel_to_overview_pixel(j, i);
+    {
+        let warper = Warper::new(&overview_georef)?;
+        for i in 0..TILE_SIZE {
+            // TODO: Given we assert PlanarConfiguration, can use some memcpy below
+            for j in 0..TILE_SIZE {
+                // TODO: Naive nearest neighbor => replace by bilinear (or make this selectable)
+                // Compute the 3857/projeced position of that pixel
+                let overview_pixel = warper.project_tile_pixel(&tile_coords, j as f64, i as f64);
 
-            // If we are outside of the overview area rect, leave pixels black.
-            // Note that we have a small 'margin' of one pixel to avoid black borders on the side
-            // of some tiles
-            let margin_px = 1.0;
-            if overview_pixel.x < (overview_area_rect.j_from as f64 - margin_px)
-                || overview_pixel.x > (overview_area_rect.j_to as f64 + margin_px)
-            {
-                continue;
-            }
-            if overview_pixel.y < (overview_area_rect.i_from as f64 - margin_px)
-                || overview_pixel.y > (overview_area_rect.i_to as f64 + margin_px)
-            {
-                continue;
-            }
-            // We clamp again just out of caution to avoid out of bounds due to rounding errors or something
-            let overview_area_x = (overview_pixel.x as i64 - overview_area_rect.j_from as i64)
-                .clamp(0, overview_area_rect.width() as i64 - 1);
-            let overview_area_y = (overview_pixel.y as i64 - overview_area_rect.i_from as i64)
-                .clamp(0, overview_area_rect.height() as i64 - 1);
+                // If we are outside of the overview area rect, leave pixels black.
+                // Note that we have a small 'margin' of one pixel to avoid black borders on the side
+                // of some tiles
+                let margin_px = 1.0;
+                if overview_pixel.x < (overview_area_rect.j_from as f64 - margin_px)
+                    || overview_pixel.x > (overview_area_rect.j_to as f64 + margin_px)
+                {
+                    continue;
+                }
+                if overview_pixel.y < (overview_area_rect.i_from as f64 - margin_px)
+                    || overview_pixel.y > (overview_area_rect.i_to as f64 + margin_px)
+                {
+                    continue;
+                }
+                // We clamp again just out of caution to avoid out of bounds due to rounding errors or something
+                let overview_area_x = (overview_pixel.x as i64 - overview_area_rect.j_from as i64)
+                    .clamp(0, overview_area_rect.width() as i64 - 1);
+                let overview_area_y = (overview_pixel.y as i64 - overview_area_rect.i_from as i64)
+                    .clamp(0, overview_area_rect.height() as i64 - 1);
 
-            // We need to flip i here because i, j are in TMS coordinates with i/y growing north
-            // but in raster space, y is growing south
-            let i = TILE_SIZE - i - 1;
-            for b in 0..3 {
-                tile_data[(i * TILE_SIZE * 3 + j * 3 + b) as usize] = overview_area_data
-                    [(overview_area_y as u64 * overview_area_rect.width() * nbands
-                        + overview_area_x as u64 * nbands
-                        + b) as usize];
+                // We need to flip i here because i, j are in TMS coordinates with i/y growing north
+                // but in raster space, y is growing south
+                let i = TILE_SIZE - i - 1;
+                for b in 0..3 {
+                    tile_data[(i * TILE_SIZE * 3 + j * 3 + b) as usize] = overview_area_data
+                        [(overview_area_y as u64 * overview_area_rect.width() * nbands
+                            + overview_area_x as u64 * nbands
+                            + b) as usize];
+                }
             }
         }
     }
@@ -220,15 +231,51 @@ fn resolution(zoom: u32) -> f64 {
 }
 
 /// Convert pixel coordinates in given zoom level of pyramid to EPSG:3857
-fn pixel_to_meters(x: u64, y: u64, zoom: u32) -> (f64, f64) {
+pub fn pixel_to_meters(x: f64, y: f64, zoom: u32) -> (f64, f64) {
     // Small notes on coordinate systems here.
     // The 3857 coordinate system has x grow left and y upwards
     // The XYZ tile coordinates have x grow left and y downwards
     //
     let res = resolution(zoom);
-    let mx = x as f64 * res + TOP_LEFT_METERS.0;
-    let my = y as f64 * res + TOP_LEFT_METERS.1;
+    let mx = x * res + TOP_LEFT_METERS.0;
+    let my = y * res + TOP_LEFT_METERS.1;
     (mx, my)
+}
+
+#[derive(Debug)]
+struct BoundingBox {
+    xmin: f64,
+    xmax: f64,
+    ymin: f64,
+    ymax: f64,
+}
+
+impl BoundingBox {
+    pub fn corners(&self) -> [Vec2f; 4] {
+        [
+            vec2f(self.xmin, self.ymin),
+            vec2f(self.xmax, self.ymin),
+            vec2f(self.xmax, self.ymax),
+            vec2f(self.xmin, self.ymax),
+        ]
+    }
+
+    pub fn from_points(points: &Vec<Vec2f>) -> BoundingBox {
+        let mut mins: [f64; 2] = [f64::INFINITY, f64::INFINITY];
+        let mut maxs: [f64; 2] = [f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for p in points {
+            mins[0] = f64::min(mins[0], p.x);
+            mins[1] = f64::min(mins[1], p.y);
+            maxs[0] = f64::max(maxs[0], p.x);
+            maxs[1] = f64::max(maxs[1], p.y);
+        }
+        BoundingBox {
+            xmin: mins[0],
+            ymin: mins[1],
+            xmax: maxs[0],
+            ymax: maxs[1],
+        }
+    }
 }
 
 impl TMSTileCoords {
@@ -239,10 +286,32 @@ impl TMSTileCoords {
             z,
         }
     }
+
+    /// Convert from pixel coordinates within this tile to 3857 meters
+    fn tile_pixel_to_3857_meters(&self, px: f64, py: f64) -> (f64, f64) {
+        pixel_to_meters(
+            (self.x * TILE_SIZE) as f64 + px,
+            (self.y * TILE_SIZE) as f64 + py,
+            self.z,
+        )
+    }
+
+    fn tile_bounds_3857(&self) -> BoundingBox {
+        let (xmin, ymin) = self.tile_pixel_to_3857_meters(0.0, 0.0);
+        let (xmax, ymax) = self.tile_pixel_to_3857_meters(TILE_SIZE as f64, TILE_SIZE as f64);
+        BoundingBox {
+            xmin,
+            ymin,
+            xmax,
+            ymax,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::epsg::Crs;
+
     use super::*;
     use testutils::*;
 
@@ -261,28 +330,6 @@ mod tests {
         // For reference: https://wiki.openstreetmap.org/wiki/Zoom_levels
         assert_float_eq(resolution(17), 1.194, 1e-2);
         assert_float_eq(resolution(20), 0.149, 1e-2);
-    }
-
-    #[derive(Debug)]
-    struct BoundingBox {
-        pub xmin: f64,
-        pub xmax: f64,
-        pub ymin: f64,
-        pub ymax: f64,
-    }
-
-    impl TMSTileCoords {
-        fn tile_bounds_3857(&self) -> BoundingBox {
-            let (xmin, ymin) = pixel_to_meters(self.x * TILE_SIZE, self.y * TILE_SIZE, self.z);
-            let (xmax, ymax) =
-                pixel_to_meters((self.x + 1) * TILE_SIZE, (self.y + 1) * TILE_SIZE, self.z);
-            BoundingBox {
-                xmin,
-                ymin,
-                xmax,
-                ymax,
-            }
-        }
     }
 
     #[test]
@@ -334,8 +381,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_tile_local_file_full_tile() {
-        // Tests extracting a tile that is fully covered by the image
+    async fn test_extract_tile_local_file_full_tile_3857() {
+        // Tests extracting a tile that is fully covered by the image - which is already in 3857
         let mut cog = crate::COG::open("example_data/example_1_cog_3857_nocompress.tif")
             .await
             .unwrap();
@@ -363,6 +410,48 @@ mod tests {
         // .unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_full_tile_ch1903() {
+        // Tests extracting a tile that is fully covered by the image which is in CH1903+
+        let mut cog = crate::COG::open("example_data/example_1_cog_nocompress.tif")
+            .await
+            .unwrap();
+        // The image should be in CH1903+. Note that we check mostly to avoid wrongly using an
+        // "already-in-3857" image
+        // https://epsg.io/2056
+        assert_eq!(cog.georeference.crs, Crs::Unknown(2056));
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549687, 365589))
+            .await
+            .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
+        //   python utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &crate::image::ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.data.clone(),
+        //     },
+        // )
+        // .unwrap();
+
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_nocompress__20_549687_365589.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);

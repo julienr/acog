@@ -6,7 +6,6 @@ pub mod ppm;
 mod sources;
 mod tiff;
 pub mod tiler;
-mod warp;
 
 pub use errors::Error;
 pub use tiff::cog::{ImageRect, COG};

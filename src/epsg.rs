@@ -15,7 +15,7 @@ impl UnitOfMeasure {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Crs {
     PseudoMercator,
     Unknown(u16),
@@ -26,6 +26,13 @@ impl Crs {
         match v {
             3857 => Crs::PseudoMercator,
             v => Crs::Unknown(v),
+        }
+    }
+
+    pub fn epsg_code(&self) -> u16 {
+        match self {
+            Crs::PseudoMercator => 3857,
+            Crs::Unknown(v) => *v,
         }
     }
 }
