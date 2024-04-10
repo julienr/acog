@@ -1,6 +1,7 @@
 mod epsg;
 mod errors;
 pub mod image;
+mod math;
 pub mod npy;
 pub mod ppm;
 mod sources;

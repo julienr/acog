@@ -4,6 +4,7 @@ use crate::COG;
 
 use self::warp::Warper;
 mod warp;
+use crate::math::{vec2f, Vec2f};
 
 /// TMS tile coordinates
 /// Small notes on coordinate systems here.
@@ -51,61 +52,6 @@ fn find_best_overview(cog: &COG, zoom: u32) -> usize {
     }
     println!("selected overview i={}", selected_overview_index);
     selected_overview_index
-}
-
-// TODO: Move to math.rs + add tests
-#[derive(Copy, Clone, Debug)]
-pub struct Vec2<T> {
-    x: T,
-    y: T,
-}
-
-pub type Vec2f = Vec2<f64>;
-
-pub fn vec2f(x: f64, y: f64) -> Vec2f {
-    Vec2 { x, y }
-}
-
-impl<T> From<(T, T)> for Vec2<T> {
-    fn from(value: (T, T)) -> Self {
-        Vec2 {
-            x: value.0,
-            y: value.1,
-        }
-    }
-}
-
-impl<T: std::ops::Sub<Output = T> + std::marker::Copy> std::ops::Sub for Vec2<T> {
-    type Output = Self;
-
-    fn sub(self, rhs: Vec2<T>) -> Self::Output {
-        Vec2 {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-        }
-    }
-}
-
-impl<T: std::ops::Add<Output = T>> std::ops::Add for Vec2<T> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Vec2 {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-        }
-    }
-}
-
-impl<T: std::ops::Mul<Output = T> + std::marker::Copy> std::ops::Mul<T> for Vec2<T> {
-    type Output = Self;
-
-    fn mul(self, rhs: T) -> Self::Output {
-        Vec2 {
-            x: self.x * rhs,
-            y: self.y * rhs,
-        }
-    }
 }
 
 pub struct TileData {
