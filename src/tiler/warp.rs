@@ -52,17 +52,15 @@ impl<'a> Warper<'a> {
     // `source_crs` and `source_georef`
     pub fn compute_image_bounding_box(&self, tile_coords: &TMSTileCoords) -> BoundingBox {
         let tile_bounds = tile_coords.tile_bounds_3857();
-        let corners = tile_bounds.corners();
+        let edges = tile_bounds.edges();
         // We use a similar algorithm as GDAL and project 21 points against each edge of the tile
         // onto the destination and compute the bbox from that
         const N: usize = 21;
         let mut points: Vec<Vec2f> = vec![];
-        for i in 0..3 {
-            let c1 = corners[i];
-            let c2 = corners[(i + 1) % 4];
+        for (c1, c2) in edges {
             let dir = c2 - c1;
             for n in 0..N {
-                let p = c1 + dir * ((n as f64) / N as f64);
+                let p = c1 + dir * ((n as f64 + 1.0) / (N as f64));
                 points.push(p);
             }
         }
@@ -77,8 +75,36 @@ impl<'a> Warper<'a> {
 
 #[cfg(test)]
 mod tests {
+    use testutils::assert_float_eq;
+
+    use crate::{
+        epsg::{Crs, UnitOfMeasure},
+        tiff::proj::Geotransform,
+        tiler::{EARTH_EQUATOR_CIRCUMFERENCE, TOP_LEFT_METERS},
+    };
+
+    use super::*;
+
     #[test]
-    fn test_compute_source_bounding_box_3857() {
-        // TODO: Compare to `tile_pixel_to_overview_pixel`
+    fn test_compute_image_bounding_box_3857() {
+        // Simulate an image covering the whole extent of 3857
+        let image_size = 1000.0;
+        let georef = Georeference {
+            crs: Crs::PseudoMercator,
+            unit: UnitOfMeasure::LinearMeter,
+            geo_transform: Geotransform {
+                ul_x: TOP_LEFT_METERS.0,
+                ul_y: TOP_LEFT_METERS.1,
+                x_res: EARTH_EQUATOR_CIRCUMFERENCE / image_size,
+                y_res: EARTH_EQUATOR_CIRCUMFERENCE / image_size,
+            },
+        };
+        let warper = Warper::new(&georef).unwrap();
+        // Getting the (0, 0, 0) tile should just cover the whole image in one tile
+        let bbox = warper.compute_image_bounding_box(&TMSTileCoords::from_zxy(0, 0, 0));
+        assert_float_eq(bbox.xmin, 0.0, 1e-5);
+        assert_float_eq(bbox.ymin, 0.0, 1e-5);
+        assert_float_eq(bbox.xmax, image_size, 1e-5);
+        assert_float_eq(bbox.ymax, image_size, 1e-5);
     }
 }

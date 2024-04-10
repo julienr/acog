@@ -53,7 +53,7 @@ fn find_best_overview(cog: &COG, zoom: u32) -> usize {
     selected_overview_index
 }
 
-// TODO: Move to math.rs
+// TODO: Move to math.rs + add tests
 #[derive(Copy, Clone, Debug)]
 pub struct Vec2<T> {
     x: T,
@@ -251,13 +251,13 @@ struct BoundingBox {
 }
 
 impl BoundingBox {
-    pub fn corners(&self) -> [Vec2f; 4] {
-        [
-            vec2f(self.xmin, self.ymin),
-            vec2f(self.xmax, self.ymin),
-            vec2f(self.xmax, self.ymax),
-            vec2f(self.xmin, self.ymax),
-        ]
+    /// Return all edges of this bounding box, as a pair of (start vertex, end vertex)
+    pub fn edges(&self) -> [(Vec2f, Vec2f); 4] {
+        let tl = vec2f(self.xmin, self.ymin);
+        let tr = vec2f(self.xmax, self.ymin);
+        let br = vec2f(self.xmax, self.ymax);
+        let bl = vec2f(self.xmin, self.ymax);
+        [(tl, tr), (tr, br), (br, bl), (bl, tl)]
     }
 
     pub fn from_points(points: &Vec<Vec2f>) -> BoundingBox {
