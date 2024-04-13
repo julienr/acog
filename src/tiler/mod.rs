@@ -1,4 +1,5 @@
 use crate::tiff::cog::ImageRect;
+use crate::tiff::proj::Georeference;
 use crate::Error;
 use crate::COG;
 
@@ -31,19 +32,35 @@ pub struct TMSTileCoords {
 
 pub const TILE_SIZE: u64 = 256;
 
-fn find_best_overview(cog: &COG, zoom: u32) -> usize {
+trait OverviewGeoreferenceCollection {
+    fn georeference(&self) -> &Georeference;
+    /// Returns the Georeferences for each overview in the COG
+    fn georeferences_for_overview(&self) -> Vec<Georeference>;
+}
+
+impl OverviewGeoreferenceCollection for COG {
+    fn georeference(&self) -> &Georeference {
+        &self.georeference
+    }
+
+    fn georeferences_for_overview(&self) -> Vec<Georeference> {
+        self.overviews
+            .iter()
+            .map(|o| self.compute_georeference_for_overview(o))
+            .collect()
+    }
+}
+
+fn find_best_overview(cog: &dyn OverviewGeoreferenceCollection, zoom: u32) -> usize {
     let tile_res_m = resolution(zoom);
-    let cog_res_m = cog.georeference.geo_transform.x_res;
+    let cog_res_m = cog.georeference().geo_transform.x_res;
     println!("tile_res_m={}, cog_res_m={}", tile_res_m, cog_res_m);
 
     let mut selected_overview_index = 0;
     let mut selected_overview_res_m = cog_res_m;
 
-    for (i, overview) in cog.overviews.iter().enumerate() {
-        let overview_res_m = cog
-            .compute_georeference_for_overview(overview)
-            .geo_transform
-            .pixel_resolution();
+    for (i, overview_georef) in cog.georeferences_for_overview().iter().enumerate() {
+        let overview_res_m = overview_georef.geo_transform.pixel_resolution();
         if overview_res_m < tile_res_m && overview_res_m > selected_overview_res_m {
             selected_overview_index = i;
             selected_overview_res_m = overview_res_m;
@@ -256,7 +273,10 @@ impl TMSTileCoords {
 
 #[cfg(test)]
 mod tests {
-    use crate::epsg::Crs;
+    use crate::{
+        epsg::{Crs, UnitOfMeasure},
+        tiff::proj::Geotransform,
+    };
 
     use super::*;
     use testutils::*;
@@ -324,6 +344,49 @@ mod tests {
             },
             1.0, // maptiler just gives integral coordinates
         );
+    }
+
+    struct FakeCOG {
+        georef: Georeference,
+        overviews_georef: Vec<Georeference>,
+    }
+
+    impl OverviewGeoreferenceCollection for FakeCOG {
+        fn georeference(&self) -> &Georeference {
+            &self.georef
+        }
+
+        fn georeferences_for_overview(&self) -> Vec<Georeference> {
+            self.overviews_georef.clone()
+        }
+    }
+
+    fn make_meters_georeference(res_m: f64) -> Georeference {
+        Georeference {
+            crs: Crs::PseudoMercator,
+            unit: UnitOfMeasure::LinearMeter,
+            geo_transform: Geotransform {
+                ul_x: 0.0,
+                ul_y: 0.0,
+                x_res: res_m,
+                y_res: res_m,
+            },
+        }
+    }
+
+    #[test]
+    fn test_find_best_overview_unit_meters() {
+        let cog = FakeCOG {
+            georef: make_meters_georeference(1.0),
+            overviews_georef: vec![
+                make_meters_georeference(2.0),
+                make_meters_georeference(4.0),
+                make_meters_georeference(8.0),
+            ],
+        };
+        // Zoom level to size reference
+        // https://wiki.openstreetmap.org/wiki/Zoom_levels
+        assert_eq!(find_best_overview(&cog, 15), 1);
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@ use crate::Error;
 
 /// A Geotransform, inspired by GDAL but enforcing north-up images
 /// https://gdal.org/tutorials/geotransforms_tut.html
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Geotransform {
     // x coordinate of the upper left corner of the upper left pixel
     pub ul_x: f64,
@@ -61,7 +61,7 @@ impl Geotransform {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Georeference {
     pub crs: Crs,
     pub unit: UnitOfMeasure,
