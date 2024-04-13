@@ -78,9 +78,9 @@ mod tests {
     use testutils::assert_float_eq;
 
     use crate::{
+        epsg::spheroid_3857::{EARTH_EQUATOR_CIRCUMFERENCE, TOP_LEFT_METERS},
         epsg::{Crs, UnitOfMeasure},
         tiff::georef::Geotransform,
-        tiler::{EARTH_EQUATOR_CIRCUMFERENCE, TOP_LEFT_METERS},
     };
 
     use super::*;

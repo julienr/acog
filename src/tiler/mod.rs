@@ -1,3 +1,4 @@
+use crate::epsg::spheroid_3857::{EARTH_RADIUS_METERS, TOP_LEFT_METERS};
 use crate::tiff::cog::ImageRect;
 use crate::tiff::georef::Georeference;
 use crate::Error;
@@ -173,15 +174,6 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         overview_index,
     })
 }
-
-// According to the spheroid used by 3857, see https://epsg.io/3857
-const EARTH_RADIUS_METERS: f64 = 6378137.0;
-const EARTH_EQUATOR_CIRCUMFERENCE: f64 = 2.0 * std::f64::consts::PI * EARTH_RADIUS_METERS;
-// That's the "projected bounds" top left
-const TOP_LEFT_METERS: (f64, f64) = (
-    -EARTH_EQUATOR_CIRCUMFERENCE / 2.0,
-    -EARTH_EQUATOR_CIRCUMFERENCE / 2.0,
-);
 
 /// Returns pixel size at a given zoom level of pyramid of EPSG:3857
 fn resolution(zoom: u32) -> f64 {

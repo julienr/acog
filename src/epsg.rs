@@ -1,5 +1,16 @@
 /// Utilities related to EPSG
 
+pub mod spheroid_3857 {
+    // According to the spheroid used by 3857, see https://epsg.io/3857
+    pub const EARTH_RADIUS_METERS: f64 = 6378137.0;
+    pub const EARTH_EQUATOR_CIRCUMFERENCE: f64 = 2.0 * std::f64::consts::PI * EARTH_RADIUS_METERS;
+    // That's the "projected bounds" top left
+    pub const TOP_LEFT_METERS: (f64, f64) = (
+        -EARTH_EQUATOR_CIRCUMFERENCE / 2.0,
+        -EARTH_EQUATOR_CIRCUMFERENCE / 2.0,
+    );
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum UnitOfMeasure {
     LinearMeter, // https://epsg.io/9001-units
