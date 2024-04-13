@@ -1,6 +1,6 @@
 use super::geo_keys::GeoKeyDirectory;
+use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
-use super::proj::{Georeference, Geotransform};
 use crate::sources::Source;
 use crate::Error;
 

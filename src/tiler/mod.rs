@@ -1,5 +1,5 @@
 use crate::tiff::cog::ImageRect;
-use crate::tiff::proj::Georeference;
+use crate::tiff::georef::Georeference;
 use crate::Error;
 use crate::COG;
 
@@ -275,7 +275,7 @@ impl TMSTileCoords {
 mod tests {
     use crate::{
         epsg::{Crs, UnitOfMeasure},
-        tiff::proj::Geotransform,
+        tiff::georef::Geotransform,
     };
 
     use super::*;

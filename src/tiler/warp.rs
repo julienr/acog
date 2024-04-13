@@ -2,7 +2,7 @@
 /// https://github.com/OSGeo/gdal/blob/b63f9ad1881853f000b054c7dd787090da1fb9dc/alg/gdalwarper.cpp#L1215
 use proj::Transform;
 
-use crate::tiff::proj::Georeference;
+use crate::tiff::georef::Georeference;
 use crate::Error;
 
 use super::{BoundingBox, TMSTileCoords, Vec2f};
@@ -79,7 +79,7 @@ mod tests {
 
     use crate::{
         epsg::{Crs, UnitOfMeasure},
-        tiff::proj::Geotransform,
+        tiff::georef::Geotransform,
         tiler::{EARTH_EQUATOR_CIRCUMFERENCE, TOP_LEFT_METERS},
     };
 
