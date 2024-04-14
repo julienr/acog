@@ -1,3 +1,5 @@
+use crate::Error;
+
 /// Utilities related to EPSG
 
 pub mod spheroid_3857 {
@@ -11,17 +13,18 @@ pub mod spheroid_3857 {
     );
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum UnitOfMeasure {
     LinearMeter, // https://epsg.io/9001-units
-    Unknown(u16),
+    Degree,      // https://epsg.io/9102-units
 }
 
 impl UnitOfMeasure {
-    pub fn decode(v: u16) -> UnitOfMeasure {
+    pub fn decode(v: u16) -> Result<UnitOfMeasure, Error> {
         match v {
-            9001 => UnitOfMeasure::LinearMeter,
-            v => UnitOfMeasure::Unknown(v),
+            9001 => Ok(UnitOfMeasure::LinearMeter),
+            9102 => Ok(UnitOfMeasure::Degree),
+            v => Err(Error::UnsupportedUnit(format!("{}", v))),
         }
     }
 }

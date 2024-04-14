@@ -61,7 +61,7 @@ fn find_best_overview(cog: &dyn OverviewGeoreferenceCollection, zoom: u32) -> us
     let mut selected_overview_res_m = cog_res_m;
 
     for (i, overview_georef) in cog.georeferences_for_overview().iter().enumerate() {
-        let overview_res_m = overview_georef.geo_transform.pixel_resolution();
+        let overview_res_m = overview_georef.pixel_resolution_in_meters();
         if overview_res_m < tile_res_m && overview_res_m > selected_overview_res_m {
             selected_overview_index = i;
             selected_overview_res_m = overview_res_m;
@@ -267,7 +267,7 @@ impl TMSTileCoords {
 mod tests {
     use crate::{
         epsg::{Crs, UnitOfMeasure},
-        tiff::georef::Geotransform,
+        tiff::georef::{meters_to_lon_equator, Geotransform},
     };
 
     use super::*;
@@ -381,6 +381,35 @@ mod tests {
         assert_eq!(find_best_overview(&cog, 15), 1);
     }
 
+    fn make_degrees_georeference(res_m_equator: f64) -> Georeference {
+        let res_deg = meters_to_lon_equator(res_m_equator);
+        Georeference {
+            crs: Crs::Unknown(4326),
+            unit: UnitOfMeasure::Degree,
+            geo_transform: Geotransform {
+                ul_x: 0.0,
+                ul_y: 0.0,
+                x_res: res_deg,
+                y_res: res_deg,
+            },
+        }
+    }
+
+    #[test]
+    fn test_find_best_overview_unit_degrees() {
+        let cog = FakeCOG {
+            georef: make_degrees_georeference(1.0),
+            overviews_georef: vec![
+                make_degrees_georeference(2.0),
+                make_degrees_georeference(4.0),
+                make_degrees_georeference(8.0),
+            ],
+        };
+        // Zoom level to size reference
+        // https://wiki.openstreetmap.org/wiki/Zoom_levels
+        assert_eq!(find_best_overview(&cog, 15), 1);
+    }
+
     #[tokio::test]
     async fn test_extract_tile_local_file_full_tile_3857() {
         // Tests extracting a tile that is fully covered by the image - which is already in 3857
@@ -453,6 +482,50 @@ mod tests {
 
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_nocompress__20_549687_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_full_tile_4326() {
+        // Tests extracting a tile that is fully covered by the image which is in 4326,
+        // which means it also has UnitOfMeasure::Degree
+        let mut cog = crate::COG::open("example_data/marina_1_cog_nocompress.tif")
+            .await
+            .unwrap();
+        // The image should be in 4326. Note that we check mostly to avoid wrongly using an
+        // "already-in-3857" image
+        assert_eq!(cog.georeference.crs, Crs::Unknown(4326));
+        assert_eq!(cog.georeference.unit, UnitOfMeasure::Degree);
+
+        let tile_data =
+            super::extract_tile(&mut cog, TMSTileCoords::from_zxy(21, 1726623, 1100526))
+                .await
+                .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/marina_1_cog_nocompress.tif 21 1726623 1100526
+        //   python utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &crate::image::ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.data.clone(),
+        //     },
+        // )
+        // .unwrap();
+
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/marina_1_cog_nocompress__21_1726623_1100526.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);

@@ -192,7 +192,6 @@ impl OverviewDataReader {
             if ti < out_rect.i_from || ti >= out_rect.i_to {
                 continue;
             }
-            // TODO: Given we assert PlanarConfiguration, can use some memcpy below
             for tj in tile_rect.j_from..tile_rect.j_to {
                 if tj < out_rect.j_from || tj >= out_rect.j_to {
                     continue;
@@ -256,6 +255,20 @@ impl OverviewDataReader {
                     i_to: (tile_i + 1) * self.tile_height,
                     j_to: (tile_j + 1) * self.tile_width,
                 };
+                let tile_data_expected_nbytes =
+                    tile_rect.width() * tile_rect.height() * self.nbands;
+                if tile_data.len() as u64 != tile_data_expected_nbytes {
+                    // If we fail here, two things could have happened:
+                    // - The file has partial tiles that are less than tile_size * tile_size. That
+                    //   valid as per the COG spec
+                    // - Something is wrong with the decompression. Either the tile_data is compressed
+                    //   but we didn't pick that up. Or the decompression didn't return enough data
+                    //   (note that for now we don't support compression - so that's a note for when we do)
+                    return Err(Error::InvalidData(format!(
+                        "tile_data shorter than expected. {} instead of {}. Is there some compression issue ?",
+                        tile_data.len(), tile_data_expected_nbytes
+                    )));
+                }
                 // "Decompress" into data
                 self.paste_tile(&mut out_data, &tile_data, rect, &tile_rect);
             }

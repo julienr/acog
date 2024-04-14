@@ -1,8 +1,17 @@
 use super::geo_keys::{GeoKeyDirectory, KeyID};
 use super::ifd::{IFDTag, ImageFileDirectory};
-use crate::epsg::{Crs, UnitOfMeasure};
+use crate::epsg::{spheroid_3857::EARTH_EQUATOR_CIRCUMFERENCE, Crs, UnitOfMeasure};
 use crate::sources::Source;
 use crate::Error;
+
+pub fn lon_to_meters_equator(lon: f64) -> f64 {
+    lon * EARTH_EQUATOR_CIRCUMFERENCE / 360.0
+}
+
+#[allow(dead_code)]
+pub fn meters_to_lon_equator(m: f64) -> f64 {
+    m / lon_to_meters_equator(1.0)
+}
 
 /// A Geotransform, inspired by GDAL but enforcing north-up images
 /// https://gdal.org/tutorials/geotransforms_tut.html
@@ -74,14 +83,26 @@ impl Georeference {
         source: &mut Source,
         geo_keys: &GeoKeyDirectory,
     ) -> Result<Georeference, Error> {
-        let model_type = geo_keys.get_short_key_value(KeyID::GTModelType)?;
-        if model_type != 1 {
-            // TODO: Could handle 2 (geodetic CRS)
-            return Err(Error::UnsupportedProjection(format!(
-                "Currently only support projected CRS (model_type=1), got {}",
-                model_type
-            )));
-        }
+        let (crs, unit) = {
+            let model_type = geo_keys.get_short_key_value(KeyID::GTModelType)?;
+            if model_type == 1 {
+                let crs = Crs::decode(geo_keys.get_short_key_value(KeyID::ProjectedCRS)?);
+                let unit =
+                    UnitOfMeasure::decode(geo_keys.get_short_key_value(KeyID::ProjLinearUnits)?)?;
+                (crs, unit)
+            } else if model_type == 2 {
+                let crs = Crs::decode(geo_keys.get_short_key_value(KeyID::GeodeticCRS)?);
+                let unit = UnitOfMeasure::decode(
+                    geo_keys.get_short_key_value(KeyID::GeodeticAngularUnits)?,
+                )?;
+                (crs, unit)
+            } else {
+                return Err(Error::UnsupportedProjection(format!(
+                    "Currently only support projected/geodetic CRS (model_type=1 or 2), got {}",
+                    model_type
+                )));
+            }
+        };
         let raster_type = geo_keys.get_short_key_value(KeyID::GTRasterType)?;
         if raster_type != 1 {
             return Err(Error::UnsupportedProjection(format!(
@@ -89,8 +110,7 @@ impl Georeference {
                 raster_type
             )));
         }
-        let crs = Crs::decode(geo_keys.get_short_key_value(KeyID::ProjectedCRS)?);
-        let unit = UnitOfMeasure::decode(geo_keys.get_short_key_value(KeyID::ProjLinearUnits)?);
+
         // We are assuming that the geotransform is affine - which isn't necessarily the case.
         // See "B.6 GeoTIFF Tags for Coordinate Transformations" of the spec for more details
         let tie_points = ifd
@@ -105,5 +125,16 @@ impl Georeference {
             unit,
             geo_transform,
         })
+    }
+
+    pub fn pixel_resolution_in_meters(&self) -> f64 {
+        match self.unit {
+            UnitOfMeasure::LinearMeter => self.geo_transform.pixel_resolution(),
+            UnitOfMeasure::Degree => {
+                // TODO: Should we instead take a lon/lat as input to this function and compute
+                // actual distance using PROJ `proj_lp_dist` or similar ?
+                lon_to_meters_equator(self.geo_transform.pixel_resolution())
+            }
+        }
     }
 }

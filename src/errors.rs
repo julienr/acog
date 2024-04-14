@@ -16,6 +16,7 @@ pub enum Error {
     RequiredGeoKeyNotFound(KeyID),
     GeoKeyHasWrongType(KeyID, KeyValue),
     UnsupportedProjection(String),
+    UnsupportedUnit(String),
     OutOfBoundsRead(String),
     UnsupportedCOG(String),
     ReqwestError(reqwest::Error),
