@@ -1,3 +1,10 @@
+# acog - An async rust library to read Cloud-Optimized GeoTiffs
+
+This is currently very early stage software. My main goals are:
+
+- Learning more about COGs
+- GDAL being sync, see if having an async library can improve performance of typical "tiler" servers (like [rio-tiler](https://cogeotiff.github.io/rio-tiler/))
+
 # References
 
 - TIFF standard: http://download.osgeo.org/geotiff/spec/tiff6.pdf
