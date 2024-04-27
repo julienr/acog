@@ -10,6 +10,7 @@ This is currently very early stage software. My main goals are:
 - TIFF standard: http://download.osgeo.org/geotiff/spec/tiff6.pdf
 - GeoTIFF standard: https://docs.ogc.org/is/19-008r4/19-008r4.html
 - COG standard: https://docs.ogc.org/is/21-026/21-026.html
+- DEFLATE/JPEG technical notes from Adobe: https://www.awaresystems.be/imaging/tiff/specification/TIFFphotoshop.pdf
 
 ## GDAL warping
 

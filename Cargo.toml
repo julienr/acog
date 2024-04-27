@@ -17,6 +17,7 @@ serde_json = { version = "1", optional = true }
 reqwest = { version = "0.11.26" }
 bytes = "1.5.0"
 proj = { path = "lib/proj" }
+flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }
 
 [dev-dependencies]
 testutils = { path = "lib/testutils" }
