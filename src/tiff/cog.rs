@@ -1,3 +1,4 @@
+use super::compression::Compression;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
@@ -25,6 +26,7 @@ pub struct Overview {
     pub nbands: u64,
     pub ifd: ImageFileDirectory,
     pub is_full_resolution: bool,
+    pub compression: Compression,
 }
 
 #[derive(Debug)]
@@ -36,6 +38,7 @@ pub struct OverviewDataReader {
     tile_height: u64,
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
+    compression: Compression,
 }
 
 impl Overview {
@@ -97,7 +100,10 @@ impl Overview {
             }
             value => return Err(Error::TagHasWrongType(IFDTag::BitsPerSample, value)),
         }
-
+        let compression = match ifd.get_tag_value(source, IFDTag::Compression).await? {
+            IFDValue::Short(v) => Compression::from_compression_tag(v[0])?,
+            value => return Err(Error::TagHasWrongType(IFDTag::Compression, value)),
+        };
         let is_full_resolution = match ifd.get_tag_value(source, IFDTag::NewSubfileType).await {
             Ok(v) => match v {
                 IFDValue::Long(v) => v[0] & 0x1 == 0,
@@ -123,6 +129,7 @@ impl Overview {
             tile_height: ifd.get_usize_tag_value(source, IFDTag::TileLength).await? as u64,
             ifd,
             is_full_resolution,
+            compression,
         })
     }
 
@@ -153,6 +160,7 @@ impl Overview {
             tile_height: self.tile_height,
             tile_offsets,
             tile_bytes_counts,
+            compression: self.compression,
         })
     }
 }
@@ -236,18 +244,24 @@ impl OverviewDataReader {
 
         let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
 
+        // The below code assumes PlanarConfiguration=1 which is what GDAL does when creating COG, although
+        // COGs with other planar configurations are possible in theory
         for tile_i in start_tile_i..end_tile_i {
             for tile_j in start_tile_j..end_tile_j {
                 // As per the spec, tiles are ordered left to right and top to bottom
                 let tile_index = tile_i * tiles_across + tile_j;
                 let offset = self.tile_offsets[tile_index as usize];
                 // Read compressed buf
-                // TODO: We assume PlanarConfiguration=1 here
                 let mut tile_data = vec![0u8; self.tile_bytes_counts[tile_index as usize] as usize];
                 // We use read_direct here to read the whole tile at once
                 // TODO: Can this lead to too huge request depending on tile size ? Or does COG always
                 // guarantee reasonable tile size ?
                 source.read_exact_direct(offset, &mut tile_data).await?;
+
+                // Decompress
+                // TODO: Could reduce allocations by reusing the output vector across tiles (e.g. weezl support into_vec)
+                println!("decompression {:?}", &tile_data[0..20]);
+                let tile_data = self.compression.decompress(tile_data)?;
 
                 let tile_rect = ImageRect {
                     i_from: tile_i * self.tile_height,
@@ -269,7 +283,6 @@ impl OverviewDataReader {
                         tile_data.len(), tile_data_expected_nbytes
                     )));
                 }
-                // "Decompress" into data
                 self.paste_tile(&mut out_data, &tile_data, rect, &tile_rect);
             }
         }
