@@ -8,6 +8,7 @@ This is currently very early stage software. My main goals are:
 # References
 
 - TIFF standard: http://download.osgeo.org/geotiff/spec/tiff6.pdf
+- BigTIFF: https://www.awaresystems.be/imaging/tiff/bigtiff.html
 - GeoTIFF standard: https://docs.ogc.org/is/19-008r4/19-008r4.html
 - COG standard: https://docs.ogc.org/is/21-026/21-026.html
 - DEFLATE/JPEG technical notes from Adobe: https://www.awaresystems.be/imaging/tiff/specification/TIFFphotoshop.pdf
@@ -31,6 +32,7 @@ In particular the section about vsicurl has notes on caching and chunk/request s
 Testing extract_tile on a local file:
 
 `cargo run --bin extract_tile -- example_data/local/marina_cog_nocompress_3857.tif 18 215827 137565`
+`cargo run --bin extract_tile -- example_data/example_1_cog_3857_nocompress_bigtiff.tif 20 549687 365589`
 
 Testing extract_tile on a minio hosted file:
 

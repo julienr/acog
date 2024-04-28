@@ -27,6 +27,25 @@ pub fn decode_u32(buf: [u8; 4], byte_order: ByteOrder) -> u32 {
     }
 }
 
+pub fn decode_u32_from_slice(buf: &[u8], byte_order: ByteOrder) -> u32 {
+    let mut data = [0u8; 4];
+    data.copy_from_slice(buf);
+    decode_u32(data, byte_order)
+}
+
+pub fn decode_u64(buf: [u8; 8], byte_order: ByteOrder) -> u64 {
+    match byte_order {
+        ByteOrder::LittleEndian => u64::from_le_bytes(buf),
+        ByteOrder::BigEndian => u64::from_be_bytes(buf),
+    }
+}
+
+pub fn decode_u64_from_slice(buf: &[u8], byte_order: ByteOrder) -> u64 {
+    let mut data = [0u8; 8];
+    data.copy_from_slice(buf);
+    decode_u64(data, byte_order)
+}
+
 pub fn decode_u32_pair(buf: [u8; 8], byte_order: ByteOrder) -> (u32, u32) {
     (
         decode_u32([buf[0], buf[1], buf[2], buf[3]], byte_order),

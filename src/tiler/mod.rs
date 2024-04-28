@@ -448,6 +448,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_extract_tile_local_file_full_tile_3857_bigtiff() {
+        // Tests extracting a tile that is fully covered by the image - which is already in 3857
+        let mut cog = crate::COG::open("example_data/example_1_cog_3857_nocompress_bigtiff.tif")
+            .await
+            .unwrap();
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549687, 365589))
+            .await
+            .unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
+        //   python utils/npyshow.py rio_tile.npy
+        //
+        // crate::ppm::write_to_ppm(
+        //     "_test_img.ppm",
+        //     &crate::image::ImageBuffer {
+        //         width: 256,
+        //         height: 256,
+        //         nbands: 3,
+        //         data: tile_data.clone(),
+        //     },
+        // )
+        // .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.data, expected.data);
+    }
+
+    #[tokio::test]
     async fn test_extract_tile_local_file_deflate() {
         // DEFLATE compressed file
         let mut cog = crate::COG::open("example_data/example_1_cog_deflate.tif")

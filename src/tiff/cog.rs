@@ -115,18 +115,18 @@ impl Overview {
 
         // Check SamplesPerPixel
         let nbands = ifd
-            .get_usize_tag_value(source, IFDTag::SamplesPerPixel)
+            .get_u64_tag_value(source, IFDTag::SamplesPerPixel)
             .await?;
         // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
         // TODO: Use u64 instead of usize here
         Ok(Overview {
-            width: ifd.get_usize_tag_value(source, IFDTag::ImageWidth).await? as u64,
-            height: ifd.get_usize_tag_value(source, IFDTag::ImageLength).await? as u64,
+            width: ifd.get_u64_tag_value(source, IFDTag::ImageWidth).await? as u64,
+            height: ifd.get_u64_tag_value(source, IFDTag::ImageLength).await? as u64,
             nbands: nbands as u64,
-            tile_width: ifd.get_usize_tag_value(source, IFDTag::TileWidth).await? as u64,
-            tile_height: ifd.get_usize_tag_value(source, IFDTag::TileLength).await? as u64,
+            tile_width: ifd.get_u64_tag_value(source, IFDTag::TileWidth).await? as u64,
+            tile_height: ifd.get_u64_tag_value(source, IFDTag::TileLength).await? as u64,
             ifd,
             is_full_resolution,
             compression,
@@ -138,7 +138,7 @@ impl Overview {
         // to the header, so this will cause additional reads to the source
         let tile_offsets = self
             .ifd
-            .get_vec_usize_tag_value(source, IFDTag::TileOffsets)
+            .get_vec_u64_tag_value(source, IFDTag::TileOffsets)
             .await?
             .iter()
             // TODO: Read directly as u64
@@ -146,7 +146,7 @@ impl Overview {
             .collect();
         let tile_bytes_counts = self
             .ifd
-            .get_vec_usize_tag_value(source, IFDTag::TileByteCounts)
+            .get_vec_u64_tag_value(source, IFDTag::TileByteCounts)
             .await?
             .iter()
             // TODO: Read directly as u64
@@ -260,7 +260,6 @@ impl OverviewDataReader {
 
                 // Decompress
                 // TODO: Could reduce allocations by reusing the output vector across tiles (e.g. weezl support into_vec)
-                println!("decompression {:?}", &tile_data[0..20]);
                 let tile_data = self.compression.decompress(tile_data)?;
 
                 let tile_rect = ImageRect {

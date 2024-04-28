@@ -20,6 +20,8 @@ enum IFDType {
     Float,
     Double,
     UndefinedRawBytes,
+    Unsigned64,
+    Signed64,
 }
 
 fn type_size(ifd_type: IFDType) -> usize {
@@ -36,6 +38,8 @@ fn type_size(ifd_type: IFDType) -> usize {
         IFDType::Float => 4,
         IFDType::Double => 8,
         IFDType::UndefinedRawBytes => 1,
+        IFDType::Unsigned64 => 8,
+        IFDType::Signed64 => 8,
     }
 }
 
@@ -54,6 +58,8 @@ pub enum IFDValue {
     SignedRational(Vec<(i32, i32)>),
     Float(Vec<f32>),
     Double(Vec<f64>),
+    Unsigned64(Vec<u64>),
+    Signed64(Vec<u64>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -146,8 +152,9 @@ pub struct IFDEntry {
 #[derive(Debug)]
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 enum OffsetOrInlineValue {
-    Offset(u32),
-    InlineValue([u8; 4]),
+    Offset(u64),
+    FourBytesInlineValue([u8; 4]),
+    EightBytesInlineValue([u8; 8]),
 }
 
 #[derive(Debug)]
@@ -155,8 +162,8 @@ enum OffsetOrInlineValue {
 struct IFDEntryMetadata {
     pub tag: IFDTag,
     pub field_type: IFDType,
-    pub count: u32,
-    pub offset: OffsetOrInlineValue,
+    pub count: u64,
+    pub offset_or_value: OffsetOrInlineValue,
     byte_order: ByteOrder,
 }
 
@@ -168,8 +175,10 @@ pub struct FullyDecodedIFDEntry {
 
 enum RawEntryResult {
     KnownType(IFDEntryMetadata),
-    UnknownType(u16),
-    InvalidCount(u32),
+    // This will contain (tag, type)
+    UnknownType(IFDTag, u16),
+    // This will contain (tag, count)
+    InvalidCount(IFDTag, u64),
 }
 
 async fn read_u16(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Result<u16, Error> {
@@ -184,54 +193,24 @@ async fn read_u32(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Re
     Ok(decode_u32(buf, byte_order))
 }
 
-impl IFDEntryMetadata {
-    pub async fn decode(buf: &[u8], byte_order: ByteOrder) -> Result<RawEntryResult, Error> {
-        let tag = decode_u16([buf[0], buf[1]], byte_order);
-        let field_type = decode_u16([buf[2], buf[3]], byte_order);
-        let field_type = match field_type {
-            0 => return Ok(RawEntryResult::UnknownType(0)),
-            v @ 13.. => return Ok(RawEntryResult::UnknownType(v)),
-            1 => IFDType::Byte,
-            2 => IFDType::Ascii,
-            3 => IFDType::Short,
-            4 => IFDType::Long,
-            5 => IFDType::Rational,
-            6 => IFDType::SignedByte,
-            7 => IFDType::UndefinedRawBytes,
-            8 => IFDType::SignedShort,
-            9 => IFDType::SignedLong,
-            10 => IFDType::SignedRational,
-            11 => IFDType::Float,
-            12 => IFDType::Double,
-        };
-        let count = decode_u32([buf[4], buf[5], buf[6], buf[7]], byte_order);
-        if count == 0 {
-            return Ok(RawEntryResult::InvalidCount(count));
-        }
-        let offset: OffsetOrInlineValue = if type_size(field_type) * count as usize <= 4 {
-            OffsetOrInlineValue::InlineValue([buf[8], buf[9], buf[10], buf[11]])
-        } else {
-            OffsetOrInlineValue::Offset(decode_u32([buf[8], buf[9], buf[10], buf[11]], byte_order))
-        };
-        Ok(RawEntryResult::KnownType(IFDEntryMetadata {
-            tag: decode_tag(tag),
-            field_type,
-            count,
-            offset,
-            byte_order,
-        }))
-    }
+async fn read_u64(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Result<u64, Error> {
+    let mut buf = [0u8; 8];
+    source.read_exact(offset, &mut buf).await?;
+    Ok(decode_u64(buf, byte_order))
+}
 
+impl IFDEntryMetadata {
     pub async fn read_value(&self, source: &mut Source) -> Result<IFDValue, Error> {
-        let data = match self.offset {
-            OffsetOrInlineValue::InlineValue(arr) => {
+        let data = match self.offset_or_value {
+            OffsetOrInlineValue::FourBytesInlineValue(arr) => {
+                arr[0..type_size(self.field_type) * self.count as usize].to_vec()
+            }
+            OffsetOrInlineValue::EightBytesInlineValue(arr) => {
                 arr[0..type_size(self.field_type) * self.count as usize].to_vec()
             }
             OffsetOrInlineValue::Offset(offset) => {
                 let mut data = vec![0u8; type_size(self.field_type) * self.count as usize];
-                source
-                    .read_exact(offset as u64, data.as_mut_slice())
-                    .await?;
+                source.read_exact(offset, data.as_mut_slice()).await?;
                 data
             }
         };
@@ -298,6 +277,18 @@ impl IFDEntryMetadata {
                 decode_f64,
                 self.byte_order,
             )),
+            IFDType::Unsigned64 => IFDValue::Unsigned64(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u64,
+                self.byte_order,
+            )),
+            IFDType::Signed64 => IFDValue::Signed64(decode_vec(
+                &data,
+                self.count as usize,
+                decode_u64,
+                self.byte_order,
+            )),
         };
         Ok(value)
     }
@@ -325,15 +316,15 @@ impl ImageFileDirectory {
         }
     }
 
-    pub async fn get_usize_tag_value(
+    pub async fn get_u64_tag_value(
         &self,
         source: &mut Source,
         tag: IFDTag,
     ) -> Result<usize, Error> {
-        Ok(self.get_vec_usize_tag_value(source, tag).await?[0])
+        Ok(self.get_vec_u64_tag_value(source, tag).await?[0])
     }
 
-    pub async fn get_vec_usize_tag_value(
+    pub async fn get_vec_u64_tag_value(
         &self,
         source: &mut Source,
         tag: IFDTag,
@@ -341,6 +332,7 @@ impl ImageFileDirectory {
         match self.get_tag_value(source, tag).await? {
             IFDValue::Short(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             IFDValue::Long(values) => Ok(values.iter().map(|v| *v as usize).collect()),
+            IFDValue::Unsigned64(values) => Ok(values.iter().map(|v| *v as usize).collect()),
             value => Err(Error::TagHasWrongType(tag, value)),
         }
     }
@@ -379,34 +371,182 @@ impl ImageFileDirectory {
     }
 }
 
-async fn read_image_file_directory(
-    source: &mut Source,
-    offset: u64,
-    byte_order: ByteOrder,
-) -> Result<(ImageFileDirectory, u32), Error> {
-    let fields_count = read_u16(source, offset, byte_order).await? as usize;
-    let offset = offset + size_of::<u16>() as u64;
-    // Read the ifd fields info + next ifd offset all at once
-    let mut ifd_data = vec![0u8; fields_count * 12 + 4];
-    source.read_exact(offset, &mut ifd_data).await?;
-    let mut entries: Vec<IFDEntryMetadata> = vec![];
-    for i in 0..fields_count {
-        let buf: &[u8] = &ifd_data[i * 12..(i + 1) * 12];
-        match IFDEntryMetadata::decode(buf, byte_order).await? {
-            RawEntryResult::KnownType(e) => entries.push(e),
-            RawEntryResult::UnknownType(v) => {
-                println!("Unknown type {:?}", v);
-            }
-            RawEntryResult::InvalidCount(c) => {
-                println!("Invalid count {:?}", c);
+trait Variant {
+    type IFDFieldsCount;
+    const IFD_ENTRY_SIZE: usize;
+}
+
+// We support both classic and BigTIFF files.
+// The main differences between them is whether fields have 32 or 64 bits size. The strategy we adopt
+// is that all our data structures are tailored for BigTIFF (e.g. 64 bits offsets) and it's easy to
+// turn classic TIFF into that.
+// This enum contains a bunch of 'reading' function that will abstract this away
+enum TIFFVariant {
+    // The TIFF standard: http://download.osgeo.org/geotiff/spec/tiff6.pdf
+    Classic,
+    // The BigTIFF de facto standard: https://www.awaresystems.be/imaging/tiff/bigtiff.html
+    BigTiff,
+}
+
+impl TIFFVariant {
+    async fn read_initial_ifd_offset(
+        &self,
+        source: &mut Source,
+        byte_order: ByteOrder,
+    ) -> Result<u64, Error> {
+        match self {
+            TIFFVariant::Classic => Ok(read_u32(source, 4, byte_order).await? as u64),
+            TIFFVariant::BigTiff => {
+                let offset_bytesize = read_u16(source, 4, byte_order).await?;
+                if offset_bytesize != 8 {
+                    return Err(Error::InvalidData(format!(
+                        "Invalid offset bytesize {}",
+                        offset_bytesize
+                    )));
+                }
+                let pad = read_u16(source, 6, byte_order).await?;
+                if pad != 0 {
+                    return Err(Error::InvalidData(format!("Invalid pad {}", pad)));
+                }
+                Ok(read_u64(source, 8, byte_order).await?)
             }
         }
     }
-    let next_ifd_offset = decode_u32(
-        ifd_data[fields_count * 12..].try_into().unwrap(),
-        byte_order,
-    );
-    Ok((ImageFileDirectory { entries }, next_ifd_offset))
+
+    fn ifd_entry_size(&self) -> usize {
+        match self {
+            TIFFVariant::Classic => 12,
+            TIFFVariant::BigTiff => 20,
+        }
+    }
+
+    fn ifd_offset_size(&self) -> usize {
+        match self {
+            TIFFVariant::Classic => 4,
+            TIFFVariant::BigTiff => 8,
+        }
+    }
+
+    async fn read_image_file_directory(
+        &self,
+        source: &mut Source,
+        offset: u64,
+        byte_order: ByteOrder,
+    ) -> Result<(ImageFileDirectory, u64), Error> {
+        let (fields_count, offset) = match self {
+            TIFFVariant::Classic => (
+                read_u16(source, offset, byte_order).await? as usize,
+                offset + size_of::<u16>() as u64,
+            ),
+            TIFFVariant::BigTiff => (
+                read_u64(source, offset, byte_order).await? as usize,
+                offset + size_of::<u64>() as u64,
+            ),
+        };
+        // Read the ifd fields info + next ifd offset all at once
+        let mut ifd_data = vec![0u8; fields_count * self.ifd_entry_size() + self.ifd_offset_size()];
+        source.read_exact(offset, &mut ifd_data).await?;
+        let mut entries: Vec<IFDEntryMetadata> = vec![];
+        for i in 0..fields_count {
+            let entry_start = i * self.ifd_entry_size();
+            let entry_end = (i + 1) * self.ifd_entry_size();
+            let buf: &[u8] = &ifd_data[entry_start..entry_end];
+            match self.decode_ifd_entry_metadata(buf, byte_order).await? {
+                RawEntryResult::KnownType(e) => entries.push(e),
+                RawEntryResult::UnknownType(tag, v) => {
+                    println!("Unknown type for tag {:?}: {:?}", tag, v);
+                }
+                RawEntryResult::InvalidCount(tag, c) => {
+                    println!("Invalid count for tag {:?}: {:?}", tag, c);
+                }
+            }
+        }
+        let next_ifd_offset = match self {
+            TIFFVariant::Classic => decode_u32(
+                ifd_data[fields_count * self.ifd_entry_size()..]
+                    .try_into()
+                    .unwrap(),
+                byte_order,
+            ) as u64,
+            TIFFVariant::BigTiff => decode_u64(
+                ifd_data[fields_count * self.ifd_entry_size()..]
+                    .try_into()
+                    .unwrap(),
+                byte_order,
+            ),
+        };
+        Ok((ImageFileDirectory { entries }, next_ifd_offset as u64))
+    }
+
+    async fn decode_ifd_entry_metadata(
+        &self,
+        buf: &[u8],
+        byte_order: ByteOrder,
+    ) -> Result<RawEntryResult, Error> {
+        // TODO: Check buf len depdning on variant (12 bytes classic, 20 bigtiff)
+        let tag = decode_tag(decode_u16([buf[0], buf[1]], byte_order));
+        let field_type = decode_u16([buf[2], buf[3]], byte_order);
+        let field_type = match field_type {
+            0 => return Ok(RawEntryResult::UnknownType(tag, 0)),
+            v @ 19.. => return Ok(RawEntryResult::UnknownType(tag, v)),
+            1 => IFDType::Byte,
+            2 => IFDType::Ascii,
+            3 => IFDType::Short,
+            4 => IFDType::Long,
+            5 => IFDType::Rational,
+            6 => IFDType::SignedByte,
+            7 => IFDType::UndefinedRawBytes,
+            8 => IFDType::SignedShort,
+            9 => IFDType::SignedLong,
+            10 => IFDType::SignedRational,
+            11 => IFDType::Float,
+            12 => IFDType::Double,
+            v @ 13..=15 => return Ok(RawEntryResult::UnknownType(tag, v)),
+            16 => IFDType::Unsigned64,
+            17 => IFDType::Signed64,
+            18 => IFDType::Unsigned64, // This is an unsigned offset type, but we just consider it equivalent to u64
+        };
+        let (count, offset_or_value) = match self {
+            TIFFVariant::Classic => {
+                let count = decode_u32_from_slice(&buf[4..8], byte_order) as u64;
+                let offset_or_value: OffsetOrInlineValue = {
+                    if type_size(field_type) * count as usize <= 4 {
+                        OffsetOrInlineValue::FourBytesInlineValue([
+                            buf[8], buf[9], buf[10], buf[11],
+                        ])
+                    } else {
+                        OffsetOrInlineValue::Offset(
+                            decode_u32_from_slice(&buf[8..12], byte_order) as u64
+                        )
+                    }
+                };
+                (count, offset_or_value)
+            }
+            TIFFVariant::BigTiff => {
+                let count = decode_u64_from_slice(&buf[4..12], byte_order);
+                let offset_or_value: OffsetOrInlineValue = {
+                    if type_size(field_type) * count as usize <= 8 {
+                        let mut data = [0u8; 8];
+                        data.copy_from_slice(&buf[12..20]);
+                        OffsetOrInlineValue::EightBytesInlineValue(data)
+                    } else {
+                        OffsetOrInlineValue::Offset(decode_u64_from_slice(&buf[12..20], byte_order))
+                    }
+                };
+                (count, offset_or_value)
+            }
+        };
+        if count == 0 {
+            return Ok(RawEntryResult::InvalidCount(tag, count));
+        }
+        Ok(RawEntryResult::KnownType(IFDEntryMetadata {
+            tag,
+            field_type,
+            count,
+            offset_or_value,
+            byte_order,
+        }))
+    }
 }
 
 #[derive(Debug)]
@@ -436,22 +576,31 @@ impl TIFFReader {
                 Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
             }
         }?;
-        let magic_number = read_u16(&mut source, 2, byte_order).await?;
-        if magic_number != 42 {
-            return Err(Error::InvalidData(format!(
-                "Invalid magic_number {:?}",
-                magic_number
-            )));
-        }
+        let variant: TIFFVariant = {
+            let magic_number = read_u16(&mut source, 2, byte_order).await?;
+            match magic_number {
+                42 => Ok(TIFFVariant::Classic),
+                43 => Ok(TIFFVariant::BigTiff),
+                _ => Err(Error::InvalidData(format!(
+                    "Invalid magic_number {:?}",
+                    magic_number
+                ))),
+            }
+        }?;
+
+        let initial_ifd_offset: u64 = variant
+            .read_initial_ifd_offset(&mut source, byte_order)
+            .await?;
 
         // Read ifds
         let ifds: Vec<ImageFileDirectory> = {
             let mut ifds = vec![];
-            let mut ifd_offset = read_u32(&mut source, 4, byte_order).await?;
+            let mut ifd_offset = initial_ifd_offset;
             // TODO: Infinite loop detection ?
             while ifd_offset > 0 {
-                let (ifd, next_ifd_offset) =
-                    read_image_file_directory(&mut source, ifd_offset as u64, byte_order).await?;
+                let (ifd, next_ifd_offset) = variant
+                    .read_image_file_directory(&mut source, ifd_offset, byte_order)
+                    .await?;
                 ifd_offset = next_ifd_offset;
                 ifds.push(ifd);
             }
