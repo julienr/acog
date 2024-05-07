@@ -38,6 +38,13 @@ Testing extract_tile on a minio hosted file:
 
 `cargo run --bin extract_tile -- /vsis3/public/local/marina_cog_nocompress_3857.tif 18 215827 137565 && python3 utils/npyshow.py img.npy`
 
+Testing extract_tile through python bindings:
+
+```
+cd python/acog
+maturin develop && python examples/extract_tile.py ../../example_data/example_1_cog_nocompress.tif 20 549687 365589
+```
+
 GDAL info on a COG on minio
 
 ```
