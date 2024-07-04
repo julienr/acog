@@ -1,3 +1,4 @@
+mod bbox;
 mod epsg;
 mod errors;
 pub mod image;
