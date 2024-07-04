@@ -50,11 +50,12 @@ impl<'a> Warper<'a> {
 
     // For a given TMS tile, computes the bounding box on the source image specified by
     // `source_crs` and `source_georef`
-    pub fn compute_image_bounding_box(&self, tile_coords: &TMSTileCoords) -> BoundingBox {
+    pub fn compute_pixel_bounding_box(&self, tile_coords: &TMSTileCoords) -> BoundingBox {
         let tile_bounds = tile_coords.tile_bounds_3857();
         let edges = tile_bounds.edges();
         // We use a similar algorithm as GDAL and project 21 points against each edge of the tile
         // onto the destination and compute the bbox from that
+        // TODO: Use proj_trans_bounds here ?
         const N: usize = 21;
         let mut points: Vec<Vec2f> = vec![];
         for (c1, c2) in edges {
@@ -86,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_compute_image_bounding_box_3857() {
+    fn test_compute_pixel_bounding_box_3857() {
         // Simulate an image covering the whole extent of 3857
         let image_size = 1000.0;
         let georef = Georeference {
@@ -101,7 +102,7 @@ mod tests {
         };
         let warper = Warper::new(&georef).unwrap();
         // Getting the (0, 0, 0) tile should just cover the whole image in one tile
-        let bbox = warper.compute_image_bounding_box(&TMSTileCoords::from_zxy(0, 0, 0));
+        let bbox = warper.compute_pixel_bounding_box(&TMSTileCoords::from_zxy(0, 0, 0));
         assert_float_eq(bbox.xmin, 0.0, 1e-5);
         assert_float_eq(bbox.ymin, 0.0, 1e-5);
         assert_float_eq(bbox.xmax, image_size, 1e-5);

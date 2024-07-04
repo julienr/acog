@@ -94,7 +94,7 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     // As a first step, read the corresponding area from the overview
     let (overview_area_ul, overview_area_br) = {
         let warper = Warper::new(&overview_georef)?;
-        let image_bbox = warper.compute_image_bounding_box(&tile_coords);
+        let image_bbox = warper.compute_pixel_bounding_box(&tile_coords);
         let bbox_ul = vec2f(image_bbox.xmin, image_bbox.ymax);
         let bbox_br = vec2f(image_bbox.xmax, image_bbox.ymin);
         (bbox_ul, bbox_br)
