@@ -2,8 +2,10 @@ use super::compression::Compression;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
+use crate::bbox::BoundingBox;
 use crate::sources::Source;
 use crate::Error;
+use proj::Transform;
 
 /// Functionality specific to reading Cloud Optimized Geotiffs
 #[derive(Debug)]
@@ -414,6 +416,35 @@ impl COG {
     // Obtain some statistics to be reported to the user
     pub fn get_stats(&self) -> String {
         self.source.get_stats()
+    }
+
+    pub fn lnglat_bounds(&self) -> Result<BoundingBox, Error> {
+        let transform = Transform::new(self.georeference.crs.epsg_code(), 4326)?;
+
+        let x1 = self.georeference.geo_transform.ul_x;
+        let x2 = self.georeference.geo_transform.ul_x
+            + self.georeference.geo_transform.x_res * self.width() as f64;
+        let y1 = self.georeference.geo_transform.ul_y;
+        let y2 = self.georeference.geo_transform.ul_y
+            + self.georeference.geo_transform.y_res * self.height() as f64;
+        let xmin = x1.min(x2);
+        let xmax = x1.max(x2);
+        let ymin = y1.min(y2);
+        let ymax = y1.max(y2);
+        transform
+            .transform_bounds(&proj::MinMaxes {
+                xmin,
+                xmax,
+                ymin,
+                ymax,
+            })
+            .map(|v| BoundingBox {
+                xmin: v.xmin,
+                xmax: v.xmax,
+                ymin: v.ymin,
+                ymax: v.ymax,
+            })
+            .map_err(|e| e.into())
     }
 }
 

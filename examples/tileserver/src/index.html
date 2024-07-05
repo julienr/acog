@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>acog tile server example</title>
+    <meta charset='utf-8'>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.css' />
+    <script src='https://unpkg.com/maplibre-gl@4.5.0/dist/maplibre-gl.js'></script>
+    <style>
+        body { margin: 0; padding: 0; }
+        html, body, #map { height: 100%; }
+        #overlay {
+          position: absolute;
+          top: 10px;
+          left: 10px;
+          z-index: 1000;
+          background-color: rgba(240, 240, 240, 0.8);
+          padding: 10px;
+        }
+        ::backdrop {
+          background-color: rgba(50, 50, 50, 0.8);
+        }
+    </style>
+</head>
+<body>
+
+<dialog>
+  Loading ...
+</dialog>
+
+<div id="map"></div>
+<div id="overlay">
+  <span>blob name: <input id="input_blob_name" type="text" value="public/local/marina_cog_nocompress.tif" size="50"/></span>
+  <button id="load_btn">load</button>
+</div>
+
+<script>
+const map = new maplibregl.Map({
+    container: 'map', // container id
+    style: {
+        'version': 8,
+        'sources': {
+            'osm': {
+                'type': 'raster',
+                'tiles': [
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                ],
+                'tileSize': 256,
+                'attribution': '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }
+        },
+        'layers': [
+            {
+                'id': 'osm',
+                'type': 'raster',
+                'source': 'osm',
+                'minzoom': 0,
+                'maxzoom': 19
+            }
+        ]
+    },
+    center: [-74.5, 40],
+    zoom: 2
+});
+
+const IMAGE_LAYER_ID = 'image'
+
+function startLoading () {
+  document.querySelector('dialog').showModal()
+}
+
+function closeLoading () {
+  document.querySelector('dialog').close()
+}
+
+async function load () {
+  const blob_name = document.querySelector('#input_blob_name').value
+  const bounds_url = `/bounds//vsis3/${blob_name}`
+  const tiles_url = `/tile//vsis3/${blob_name}/{z}/{x}/{y}`
+  startLoading()
+  try {
+    // Get bounds
+    const resp = await fetch(bounds_url)
+    if (!resp.ok) {
+      throw new Error(`Response status ${resp.status}`)
+    }
+    const bbox = await resp.json()
+    const bounds = new maplibregl.LngLatBounds(
+      new maplibregl.LngLat(bbox.lng_min, bbox.lat_min),
+      new maplibregl.LngLat(bbox.lng_max, bbox.lat_max)
+    )
+    // Add image layer
+    if (map.getLayer(IMAGE_LAYER_ID)) {
+      map.removeLayer(IMAGE_LAYER_ID)
+      map.removeSource(IMAGE_LAYER_ID)
+    }
+    map.addLayer({
+      id: IMAGE_LAYER_ID,
+      type: 'raster',
+      source: {
+        type: 'raster',
+        tiles: [tiles_url],
+        tileSize: 256
+      },
+      // TODO: Get from bounds
+      minzoom: 0,
+      maxzoom: 20
+    })
+    // Zoom to it
+    map.fitBounds(bounds)
+  } catch (e) {
+    console.error(e.message)
+  } finally {
+    closeLoading()
+  }
+}
+
+// Main code
+map.on('load', function () {
+  document.querySelector('#load_btn').onclick = load
+})
+
+</script>
+</body>
+</html>

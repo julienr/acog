@@ -14,6 +14,8 @@ use std::pin::Pin;
 
 use hyper_util::rt::tokio::{TokioIo, TokioTimer};
 
+const INDEX: &str = include_str!("index.html");
+
 enum Error {
     Http(http::Error),
     Acog(acog::Error),
@@ -46,6 +48,15 @@ impl From<turbojpeg::Error> for Error {
 
 type HandlerResponse = Response<Full<Bytes>>;
 
+fn check_filename(filename: &str) -> Result<(), Error> {
+    // TODO(security): This feels basic
+    if filename.contains("..") {
+        Err(Error::Other("Invalid filename".to_string()))
+    } else {
+        Ok(())
+    }
+}
+
 async fn four_oh_four(method: &hyper::Method, path: &str) -> Result<HandlerResponse, Error> {
     println!("Not found: method={}, path={}", method, path);
     let builder = Response::builder().status(StatusCode::NOT_FOUND);
@@ -55,13 +66,32 @@ async fn four_oh_four(method: &hyper::Method, path: &str) -> Result<HandlerRespo
 // basic handler that responds with a static string
 async fn index() -> Result<HandlerResponse, Error> {
     let builder = Response::builder().status(StatusCode::OK);
-    Ok(builder.body("Hello".to_string().into_bytes().into())?)
+    Ok(builder.body(INDEX.to_string().into_bytes().into())?)
+}
+
+async fn get_bounds(filename: &str) -> Result<HandlerResponse, Error> {
+    check_filename(filename)?;
+    println!("get_bounds {}", filename);
+    let cog = acog::COG::open(filename).await?;
+    let bbox = cog.lnglat_bounds()?;
+    let bbox_json_str = format!(
+        "{{\n\
+            \"lng_min\": {},\n\
+            \"lng_max\": {},\n\
+            \"lat_min\": {},\n\
+            \"lat_max\": {}\n\
+         }}",
+        bbox.xmin, bbox.xmax, bbox.ymin, bbox.ymax
+    );
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", "application/json")
+        .body(bbox_json_str.into_bytes().into())?)
 }
 
 async fn get_tile(filename: &str, z: u32, x: u64, y: u64) -> Result<HandlerResponse, Error> {
+    check_filename(filename)?;
     println!("get_tile {} {} {} {}", filename, z, x, y);
-
-    // SECURITY TODO: Ensure filename contains no '..' / contain it to current directory or well-known files
     let mut cog = acog::COG::open(filename).await?;
     let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
     // Encode to jpeg using turbojpeg and send back data
@@ -119,12 +149,19 @@ async fn router_inner(method: &Method, path: &str) -> Result<HandlerResponse, Er
         } else if part_match(0, "tile") && path_parts.len() >= 5 {
             // "tile/raster.tif/{z}/{x}/{y}"
             // "tile/example_data/local/raster.tif/{z}/{x}/{y}"
+            // "tile//vsis3/example_data/local/raster.tif/{z}/{x}/{y}"
             let n = path_parts.len();
             let z = path_parts[n - 3].parse::<u32>()?;
             let x = path_parts[n - 2].parse::<u64>()?;
             let y = path_parts[n - 1].parse::<u64>()?;
             let filename = path_parts[1..n - 3].join("/");
             get_tile(&filename, z, x, y).await
+        } else if part_match(0, "bounds") && path_parts.len() >= 2 {
+            // "bounds/raster.tif"
+            // "bounds/example_data/local/raster.tif"
+            // "bounds//vsis3/example_data/local/raster.tif"
+            let filename = path_parts[1..].join("/");
+            get_bounds(&filename).await
         } else {
             four_oh_four(method, path).await
         }

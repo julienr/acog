@@ -12,6 +12,14 @@ pub struct Transform {
 
 pub type Coordinate = (f64, f64);
 
+#[derive(Default)]
+pub struct MinMaxes {
+    pub xmin: f64,
+    pub xmax: f64,
+    pub ymin: f64,
+    pub ymax: f64,
+}
+
 impl Transform {
     // `from_epsg` and `to_epsg` should be EPSG identifiers like 4326 or 3857
     pub fn new(from_epsg: u16, to_epsg: u16) -> Result<Transform, Error> {
@@ -55,6 +63,33 @@ impl Transform {
         let a = unsafe { bindings::proj_coord(point.0, point.1, 0.0, 0.0) };
         let b = unsafe { bindings::proj_trans(self.projection, bindings::PJ_DIRECTION_PJ_INV, a) };
         unsafe { (b.xy.x, b.xy.y) }
+    }
+
+    pub fn transform_bounds(&self, bounds: &MinMaxes) -> Result<MinMaxes, Error> {
+        let mut out_bounds = MinMaxes::default();
+        let ret = unsafe {
+            bindings::proj_trans_bounds(
+                self._context.mut_c_ptr_from_immutable_self(),
+                self.projection,
+                bindings::PJ_DIRECTION_PJ_FWD,
+                bounds.xmin,
+                bounds.ymin,
+                bounds.xmax,
+                bounds.ymax,
+                &mut out_bounds.xmin,
+                &mut out_bounds.ymin,
+                &mut out_bounds.xmax,
+                &mut out_bounds.ymax,
+                21, // recommended value by proj docs
+            )
+        };
+        match ret {
+            1 => Ok(out_bounds),
+            _ => Err(Error::PROJError(
+                ret,
+                "proj_trans_bounds call failed".to_string(),
+            )),
+        }
     }
 }
 
