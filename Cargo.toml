@@ -21,6 +21,7 @@ flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false 
 
 [dev-dependencies]
 testutils = { path = "lib/testutils" }
+cargo-watch = "8.5.2"
 
 [features]
 json = ["dep:serde", "dep:serde_json"]

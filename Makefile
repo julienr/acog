@@ -1,7 +1,10 @@
-.PHONY: display json display_small json_small display_gm_v10
+.PHONY: all serve display json display_small json_small display_gm_v10
 
 all:
 	cargo build --all-targets
+
+serve:
+	cargo watch -x 'run -p example-tileserver'
 
 display:
 	cargo run --bin to_npy -- example_data/local/marina_cog_nocompress_3857.tif 0 && python utils/npyshow.py img.npy
