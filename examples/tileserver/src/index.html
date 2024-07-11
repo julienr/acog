@@ -35,6 +35,8 @@
 </div>
 
 <script>
+const MAX_ZOOM = 22
+
 const map = new maplibregl.Map({
     container: 'map', // container id
     style: {
@@ -60,7 +62,8 @@ const map = new maplibregl.Map({
         ]
     },
     center: [-74.5, 40],
-    zoom: 2
+    zoom: 2,
+    maxZoom: MAX_ZOOM,
 });
 
 const IMAGE_LAYER_ID = 'image'
@@ -104,7 +107,7 @@ async function load () {
       },
       // TODO: Get from bounds
       minzoom: 0,
-      maxzoom: 20
+      maxzoom: MAX_ZOOM + 1
     })
     // Zoom to it
     map.fitBounds(bounds)
