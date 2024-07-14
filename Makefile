@@ -23,3 +23,6 @@ json_small:
 
 clippy:
 	cargo clippy --all-features
+
+test:
+	cargo test --all-targets

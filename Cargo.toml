@@ -14,7 +14,11 @@ rust-version = "1.77.1"
 tokio = { version = "1.35.1", features = ["rt", "macros", "io-util", "fs"] }
 serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1", optional = true }
-reqwest = { version = "0.11.26" }
+jsonwebtoken = { version = "9.3.0", optional = true }
+# This is a dependency of jsonwebtoken but not specifying it here will fail to resolve
+time = { version = "0.2.18", optional = true }
+reqwest = { version = "0.11.26", features = ["multipart"]}
+percent-encoding = "2.3"
 bytes = "1.5.0"
 proj = { path = "lib/proj" }
 flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }
@@ -24,7 +28,9 @@ testutils = { path = "lib/testutils" }
 cargo-watch = "8.5.2"
 
 [features]
+default = ["json", "gcs"]
 json = ["dep:serde", "dep:serde_json"]
+gcs = ["dep:serde", "dep:serde_json", "dep:jsonwebtoken", "dep:time"]
 
 [lib]
 name = "acog"

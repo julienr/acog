@@ -1,10 +1,13 @@
 use std::{fmt, io::ErrorKind};
 
 mod file;
+#[cfg(feature = "gcs")]
+mod gcs;
 mod memory;
 mod s3;
 
 pub use file::FileSource;
+pub use gcs::GCSSource;
 pub use memory::MemorySource;
 pub use s3::S3Source;
 use std::collections::HashMap;
@@ -15,6 +18,7 @@ use std::io;
 enum SourceKind {
     File(FileSource),
     S3(S3Source),
+    Gcs(GCSSource),
     #[allow(dead_code)] // This is used for testing
     Memory(MemorySource),
 }
@@ -24,6 +28,7 @@ impl fmt::Debug for SourceKind {
         match self {
             Self::File(_) => f.debug_tuple("File").finish(),
             Self::S3(_) => f.debug_tuple("S3").finish(),
+            Self::Gcs(_) => f.debug_tuple("GCS").finish(),
             Self::Memory(_) => f.debug_tuple("Memory").finish(),
         }
     }
@@ -36,6 +41,7 @@ impl SourceKind {
         match self {
             SourceKind::File(s) => s.read(offset, buf).await,
             SourceKind::S3(s) => s.read(offset, buf).await,
+            SourceKind::Gcs(s) => s.read(offset, buf).await,
             SourceKind::Memory(s) => s.read(offset, buf).await,
         }
     }
@@ -56,6 +62,7 @@ impl SourceKind {
         match self {
             SourceKind::File(s) => s.get_stats(),
             SourceKind::S3(s) => s.get_stats(),
+            SourceKind::Gcs(s) => s.get_stats(),
             SourceKind::Memory(s) => s.get_stats(),
         }
     }
@@ -198,6 +205,11 @@ impl Source {
         if source_string.starts_with("/vsis3/") {
             let source = Source::new(SourceKind::S3(
                 S3Source::new(source_string.strip_prefix("/vsis3/").unwrap()).await?,
+            ));
+            Ok(source)
+        } else if source_string.starts_with("/vsigs/") {
+            let source = Source::new(SourceKind::Gcs(
+                GCSSource::new(source_string.strip_prefix("/vsigs/").unwrap()).await?,
             ));
             Ok(source)
         } else {

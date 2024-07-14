@@ -12,6 +12,7 @@ This is currently very early stage software. My main goals are:
 - GeoTIFF standard: https://docs.ogc.org/is/19-008r4/19-008r4.html
 - COG standard: https://docs.ogc.org/is/21-026/21-026.html
 - DEFLATE/JPEG technical notes from Adobe: https://www.awaresystems.be/imaging/tiff/specification/TIFFphotoshop.pdf
+- TIFF tags directory: https://www.awaresystems.be/imaging/tiff.html
 
 ## GDAL warping
 
@@ -31,12 +32,23 @@ In particular the section about vsicurl has notes on caching and chunk/request s
 
 Testing extract_tile on a local file:
 
-`cargo run --bin extract_tile -- example_data/local/marina_cog_nocompress_3857.tif 18 215827 137565`
-`cargo run --bin extract_tile -- example_data/example_1_cog_3857_nocompress_bigtiff.tif 20 549687 365589`
+```
+cargo run --bin extract_tile -- example_data/local/marina_cog_nocompress_3857.tif 18 215827 137565
+cargo run --bin extract_tile -- example_data/example_1_cog_3857_nocompress_bigtiff.tif 20 549687 365589
+```
 
 Testing extract_tile on a minio hosted file:
 
-`cargo run --bin extract_tile -- /vsis3/public/local/marina_cog_nocompress_3857.tif 18 215827 137565 && python3 utils/npyshow.py img.npy`
+```
+cargo run --bin extract_tile -- /vsis3/public/local/marina_cog_nocompress_3857.tif 18 215827 137565 && python3 utils/npyshow.py img.npy
+```
+
+Testing extract_tile on a GCS hosted file:
+
+```
+export GOOGLE_SERVICE_ACCOUNT_CONTENT=$(cat service_account.json)
+cargo run --bin extract_tile -- /vsigs/acog-test/marina/marina_split_1_cog.tif 18 215827 137565 && python3 utils/npyshow.py img.npy
+```
 
 Testing extract_tile through python bindings:
 
@@ -71,3 +83,15 @@ And then connect as a XYZ source in QGIS with the url:
 You can also debug tiles with e.g.:
 
 http://localhost:3000/example_data%2Flocal%2Fmarina_cog_nocompress_3857.tif/tile/18/215827/137565
+
+## Running automated tests
+
+### Testing GCS integration
+
+To test GCS integration/authentication, you need a service account key and include
+its content in the `GOOGLE_SERVICE_ACCOUNT_CONTENT` env variable:
+
+```
+export GOOGLE_SERVICE_ACCOUNT_CONTENT=$(cat service_account.json)
+cargo test --all-targets
+```

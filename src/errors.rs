@@ -49,3 +49,29 @@ impl From<proj::Error> for Error {
         Error::ProjError(value)
     }
 }
+
+impl From<std::env::VarError> for Error {
+    fn from(value: std::env::VarError) -> Self {
+        Error::OtherError(format!("Env var not found {:?}", value))
+    }
+}
+
+impl From<std::time::SystemTimeError> for Error {
+    fn from(value: std::time::SystemTimeError) -> Self {
+        Error::OtherError(format!("Time error: {:?}", value))
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<serde_json::Error> for Error {
+    fn from(value: serde_json::Error) -> Self {
+        Error::OtherError(format!("JSON error: {:?}", value))
+    }
+}
+
+#[cfg(feature = "gcs")]
+impl From<jsonwebtoken::errors::Error> for Error {
+    fn from(value: jsonwebtoken::errors::Error) -> Self {
+        Error::OtherError(format!("JWT error: {:?}", value))
+    }
+}
