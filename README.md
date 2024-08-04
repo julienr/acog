@@ -93,5 +93,7 @@ its content in the `GOOGLE_SERVICE_ACCOUNT_CONTENT` env variable:
 
 ```
 export GOOGLE_SERVICE_ACCOUNT_CONTENT=$(cat service_account.json)
-cargo test --all-targets
+cargo test -- --ignored
 ```
+
+The `--ignored` is required because those tests are ignored by default.

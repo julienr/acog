@@ -125,6 +125,7 @@ mod tests {
     use super::GCSAuth;
 
     #[tokio::test]
+    #[ignore]
     async fn test_gcs_auth() {
         let mut auth = GCSAuth::new().unwrap();
         let client = reqwest::Client::builder().build().unwrap();
