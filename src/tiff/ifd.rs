@@ -371,11 +371,6 @@ impl ImageFileDirectory {
     }
 }
 
-trait Variant {
-    type IFDFieldsCount;
-    const IFD_ENTRY_SIZE: usize;
-}
-
 // We support both classic and BigTIFF files.
 // The main differences between them is whether fields have 32 or 64 bits size. The strategy we adopt
 // is that all our data structures are tailored for BigTIFF (e.g. 64 bits offsets) and it's easy to
