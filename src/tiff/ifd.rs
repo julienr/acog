@@ -99,6 +99,10 @@ pub enum IFDTag {
     GeoAsciiParamsTag,
     // GDAL specific: https://www.awaresystems.be/imaging/tiff/tifftags/gdal_metadata.html
     GdalMetadata,
+    // JPEG tables - see GDAL: https://github.com/OSGeo/gdal/blob/7d3e653b5ed80f281d8664ee4bb217b24d9980bf/frmts/gtiff/libtiff/tiff.h#L345C9-L345C27
+    JpegTables,
+    YCbCrSubSampling,
+    ReferenceBlackWhite,
     UnknownTag(u16),
 }
 
@@ -133,7 +137,12 @@ fn decode_tag(tag: u16) -> IFDTag {
         325 => IFDTag::TileByteCounts,
         254 => IFDTag::NewSubfileType,
         339 => IFDTag::SampleFormat,
+        // "JPEGTables field" in
+        // https://download.osgeo.org/libtiff/old/TTN2.draft.txt
+        347 => IFDTag::JpegTables,
         317 => IFDTag::Predictor,
+        530 => IFDTag::YCbCrSubSampling,
+        532 => IFDTag::ReferenceBlackWhite,
         33550 => IFDTag::ModelPixelScaleTag,
         33922 => IFDTag::ModelTiepointTag,
         GEO_KEY_DIRECTORY_TAG => IFDTag::GeoKeyDirectoryTag,
@@ -357,6 +366,17 @@ impl ImageFileDirectory {
     ) -> Result<Vec<f64>, Error> {
         match self.get_tag_value(source, tag).await? {
             IFDValue::Double(values) => Ok(values),
+            value => Err(Error::TagHasWrongType(tag, value)),
+        }
+    }
+
+    pub async fn get_vec_undefined_raw_byte_tag_value(
+        &self,
+        source: &mut Source,
+        tag: IFDTag,
+    ) -> Result<Vec<u8>, Error> {
+        match self.get_tag_value(source, tag).await? {
+            IFDValue::UndefinedRawBytes(values) => Ok(values),
             value => Err(Error::TagHasWrongType(tag, value)),
         }
     }

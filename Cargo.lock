@@ -18,6 +18,8 @@ dependencies = [
  "testutils",
  "time 0.2.27",
  "tokio",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3497,6 +3499,21 @@ dependencies = [
  "serde",
  "static_assertions",
  "zvariant",
+]
+
+[[package]]
+name = "zune-core"
+version = "0.5.0-rc2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0fa5491574238487afaf76a17d1907b47eaace69e97720b8486d584dfca013dc"
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.0-rc2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6e1b91c3b508b590945d61560be96449641b504a94f42f1a5594161b2d328ea"
+dependencies = [
+ "zune-core",
 ]
 
 [[package]]
