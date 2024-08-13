@@ -1,3 +1,5 @@
+/// Utility functions to read/write ppm - only used for tests so this isn't meant as a general
+/// purpose ppm library
 use crate::image::ImageBuffer;
 use crate::Error;
 use std::io::{BufReader, Read, Write};

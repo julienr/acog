@@ -107,6 +107,8 @@ pub const GEO_DOUBLE_PARAMS_TAG: u16 = 34736;
 pub const GEO_ASCII_PARAMS_TAG: u16 = 34737;
 pub const GEO_KEY_DIRECTORY_TAG: u16 = 34735;
 
+// See also GDAL header for reference (TIFFTAG_XXX defines)
+// https://github.com/OSGeo/gdal/blob/7d3e653b5ed80f281d8664ee4bb217b24d9980bf/frmts/gtiff/libtiff/tiff.h
 fn decode_tag(tag: u16) -> IFDTag {
     match tag {
         262 => IFDTag::PhotometricInterpretation,
