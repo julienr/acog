@@ -2,6 +2,7 @@ use super::compression::Compression;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
+use super::tags::PhotometricInterpretation;
 use crate::bbox::BoundingBox;
 use crate::sources::Source;
 use crate::Error;
@@ -26,13 +27,14 @@ pub struct Overview {
     pub tile_width: u64,
     pub tile_height: u64,
     pub nbands: u64,
+    pub photometric_interpretation: PhotometricInterpretation,
     pub ifd: ImageFileDirectory,
     pub is_full_resolution: bool,
     pub compression: Compression,
 }
 
 #[derive(Debug)]
-pub struct OverviewDataReader {
+pub struct OverviewDataReader<'a> {
     pub width: u64,
     pub height: u64,
     pub nbands: u64,
@@ -40,14 +42,14 @@ pub struct OverviewDataReader {
     tile_height: u64,
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
-    compression: Compression,
+    compression: &'a Compression,
 }
 
 impl Overview {
     pub async fn from_ifd(
         ifd: ImageFileDirectory,
         source: &mut Source,
-        is_mask: bool,
+        photometric_interpretation: PhotometricInterpretation,
     ) -> Result<Overview, Error> {
         // Check planar configuration is contiguous pixels
         match ifd
@@ -86,7 +88,7 @@ impl Overview {
         // Check BitsPerSample is 8
         match ifd.get_tag_value(source, IFDTag::BitsPerSample).await? {
             IFDValue::Short(v) => {
-                if is_mask {
+                if photometric_interpretation == PhotometricInterpretation::Mask {
                     if !v.iter().all(|item| *item == 1) {
                         return Err(Error::UnsupportedTagValue(
                             IFDTag::BitsPerSample,
@@ -102,10 +104,7 @@ impl Overview {
             }
             value => return Err(Error::TagHasWrongType(IFDTag::BitsPerSample, value)),
         }
-        let compression = match ifd.get_tag_value(source, IFDTag::Compression).await? {
-            IFDValue::Short(v) => Compression::from_compression_tag(v[0])?,
-            value => return Err(Error::TagHasWrongType(IFDTag::Compression, value)),
-        };
+        let compression = Compression::from_ifd(source, &ifd).await?;
         let is_full_resolution = match ifd.get_tag_value(source, IFDTag::NewSubfileType).await {
             Ok(v) => match v {
                 IFDValue::Long(v) => v[0] & 0x1 == 0,
@@ -127,6 +126,7 @@ impl Overview {
             width: ifd.get_u64_tag_value(source, IFDTag::ImageWidth).await? as u64,
             height: ifd.get_u64_tag_value(source, IFDTag::ImageLength).await? as u64,
             nbands: nbands as u64,
+            photometric_interpretation,
             tile_width: ifd.get_u64_tag_value(source, IFDTag::TileWidth).await? as u64,
             tile_height: ifd.get_u64_tag_value(source, IFDTag::TileLength).await? as u64,
             ifd,
@@ -162,7 +162,7 @@ impl Overview {
             tile_height: self.tile_height,
             tile_offsets,
             tile_bytes_counts,
-            compression: self.compression,
+            compression: &self.compression,
         })
     }
 }
@@ -186,7 +186,7 @@ impl ImageRect {
     }
 }
 
-impl OverviewDataReader {
+impl OverviewDataReader<'_> {
     // Pastes the given tile at the right location in the output array. Both tile_rect and out_rect
     // define the area covered by out/tile in the whole image
     // Assumes both out_data and tile_data are packed as HwC (PlanarConfiguration=1)
@@ -262,7 +262,11 @@ impl OverviewDataReader {
 
                 // Decompress
                 // TODO: Could reduce allocations by reusing the output vector across tiles (e.g. weezl support into_vec)
-                let tile_data = self.compression.decompress(tile_data)?;
+                let tile_data = self.compression.decompress(
+                    tile_data,
+                    self.tile_width as usize,
+                    self.tile_height as usize,
+                )?;
 
                 let tile_rect = ImageRect {
                     i_from: tile_i * self.tile_height,
@@ -301,33 +305,15 @@ impl COG {
         let mut source = tiff_reader.source;
         for ifd in ifds {
             // Check photommetric interpretation to decide whether its the (RGB..) image or mask
-            match ifd
-                .get_tag_value(&mut source, IFDTag::PhotometricInterpretation)
-                .await?
-            {
-                IFDValue::Short(v) => match v[..] {
-                    // RGB
-                    [2] => {
-                        overviews.push(Overview::from_ifd(ifd, &mut source, false).await?);
-                    }
-                    // Mask
-                    [4] => {
-                        mask_overviews.push(Overview::from_ifd(ifd, &mut source, true).await?);
-                    }
-                    _ => {
-                        return Err(Error::UnsupportedTagValue(
-                            IFDTag::PhotometricInterpretation,
-                            format!("{:?}", v),
-                        ));
-                    }
-                },
-                value => {
-                    return Err(Error::TagHasWrongType(
-                        IFDTag::PhotometricInterpretation,
-                        value,
-                    ))
+            let photo_interp = PhotometricInterpretation::read_from_ifd(&mut source, &ifd).await?;
+            match photo_interp {
+                interp @ (PhotometricInterpretation::Rgb | PhotometricInterpretation::YCbCr) => {
+                    overviews.push(Overview::from_ifd(ifd, &mut source, interp).await?);
                 }
-            }
+                interp @ PhotometricInterpretation::Mask => {
+                    mask_overviews.push(Overview::from_ifd(ifd, &mut source, interp).await?);
+                }
+            };
         }
 
         // COG requirement 3: first IFD must be full res image

@@ -75,3 +75,10 @@ impl From<jsonwebtoken::errors::Error> for Error {
         Error::OtherError(format!("JWT error: {:?}", value))
     }
 }
+
+#[cfg(feature = "jpeg")]
+impl From<zune_jpeg::errors::DecodeErrors> for Error {
+    fn from(value: zune_jpeg::errors::DecodeErrors) -> Self {
+        Error::OtherError(format!("JPEG error: {:?}", value))
+    }
+}
