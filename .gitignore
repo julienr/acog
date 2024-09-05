@@ -3,5 +3,6 @@ tmp
 venv
 .ipynb_checkpoints
 *.npy
+img.ppm
 out.json
 example_data/local

@@ -1,4 +1,5 @@
-use acog::npy::write_to_npy;
+use acog::image::ImageBuffer;
+use acog::ppm::write_to_ppm;
 use acog::{Error, ImageRect};
 use std::env;
 
@@ -54,14 +55,14 @@ async fn main() -> Result<(), Error> {
         .await?
         .read_image_part(&mut cog.source, &rect)
         .await?;
-    write_to_npy(
-        "img.npy",
-        img_data,
-        [
-            rect.height() as usize,
-            rect.width() as usize,
-            overview.nbands as usize,
-        ],
+    write_to_ppm(
+        "img.ppm",
+        &ImageBuffer {
+            data: img_data,
+            width: rect.width() as usize,
+            height: rect.height() as usize,
+            nbands: overview.nbands as usize,
+        },
     )?;
     Ok(())
 }

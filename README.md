@@ -40,14 +40,14 @@ cargo run --bin extract_tile -- example_data/example_1_cog_3857_nocompress_bigti
 Testing extract_tile on a minio hosted file:
 
 ```
-cargo run --bin extract_tile -- /vsis3/public/local/marina_cog_nocompress_3857.tif 18 215827 137565 && python3 utils/npyshow.py img.npy
+cargo run --bin extract_tile -- /vsis3/public/local/marina_cog_nocompress_3857.tif 18 215827 137565 && eog img.ppm
 ```
 
 Testing extract_tile on a GCS hosted file:
 
 ```
 export GOOGLE_SERVICE_ACCOUNT_CONTENT=$(cat service_account.json)
-cargo run --bin extract_tile -- /vsigs/acog-test/marina/marina_split_1_cog.tif 18 215827 137565 && python3 utils/npyshow.py img.npy
+cargo run --bin extract_tile -- /vsigs/acog-test/marina/marina_split_1_cog.tif 18 215827 137565 && eog img.ppm
 ```
 
 Testing extract_tile through python bindings:

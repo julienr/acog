@@ -1,4 +1,4 @@
-use acog::npy::write_to_npy;
+use acog::ppm::write_to_ppm;
 use acog::tiler::{extract_tile, TMSTileCoords};
 use acog::Error;
 use std::env;
@@ -20,14 +20,8 @@ async fn main() -> Result<(), Error> {
     let y = args[4].parse::<u64>().unwrap();
 
     let mut cog = acog::COG::open(filename).await?;
-    let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
-    write_to_npy(
-        "img.npy",
-        tile_data.data,
-        // TODO: Remove hardcoded tile size
-        [256, 256, 3],
-    )?;
-
+    let tile = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
+    write_to_ppm("img.ppm", &tile.img)?;
     println!("Stats: {}", cog.get_stats());
     Ok(())
 }

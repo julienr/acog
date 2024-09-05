@@ -7,9 +7,10 @@ use std::str;
 
 pub fn write_to_ppm(filename: &str, img: &ImageBuffer) -> Result<(), Error> {
     if img.nbands != 3 {
-        return Err(Error::OtherError(
-            "Only RGB images are supported".to_string(),
-        ));
+        return Err(Error::OtherError(format!(
+            "Only RGB images are supported, got nbands={}",
+            img.nbands
+        )));
     }
     let mut file = std::fs::File::create(filename)?;
     file.write_all(format!("P6 {} {} 255\n", img.width, img.height).as_bytes())?;

@@ -39,7 +39,7 @@ jpeg = ["dep:zune-jpeg", "dep:zune-core"]
 name = "acog"
 
 [[bin]]
-name = "to_npy"
+name = "to_ppm"
 
 [[bin]]
 name = "to_json"

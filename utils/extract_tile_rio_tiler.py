@@ -4,7 +4,6 @@ Utility to compare to XYZ tiles extracted by rio-tiler
 import argparse
 from rio_tiler.io import Reader
 import pylab as pl
-import numpy as np
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -21,4 +20,5 @@ if __name__ == "__main__":
         tile = image.tile(args.x, args.y, args.z)
         img = tile.data.transpose(1, 2, 0)
         # tile also has a .mask that we should compare against
-    np.save('rio_tile.npy', img)
+    pl.imshow(img)
+    pl.show()

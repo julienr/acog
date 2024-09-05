@@ -96,10 +96,10 @@ async fn get_tile(filename: &str, z: u32, x: u64, y: u64) -> Result<HandlerRespo
     let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
     // Encode to jpeg using turbojpeg and send back data
     let img = turbojpeg::Image::<&[u8]> {
-        pixels: &tile_data.data,
-        width: 256,
-        height: 256,
-        pitch: 256 * 3,
+        pixels: &tile_data.img.data,
+        width: tile_data.img.width,
+        height: tile_data.img.height,
+        pitch: tile_data.img.width * 3,
         format: turbojpeg::PixelFormat::RGB,
     };
     let jpeg_buf = turbojpeg::compress(img, 95, turbojpeg::Subsamp::Sub2x2)?;

@@ -1,5 +1,6 @@
 use crate::bbox::BoundingBox;
 use crate::epsg::spheroid_3857::{EARTH_RADIUS_METERS, TOP_LEFT_METERS};
+use crate::image::ImageBuffer;
 use crate::tiff::cog::ImageRect;
 use crate::tiff::georef::Georeference;
 use crate::Error;
@@ -74,7 +75,7 @@ fn find_best_overview(cog: &dyn OverviewGeoreferenceCollection, zoom: u32) -> us
 }
 
 pub struct TileData {
-    pub data: Vec<u8>,
+    pub img: ImageBuffer,
     #[allow(dead_code)]
     overview_index: usize,
 }
@@ -114,7 +115,12 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     {
         // TODO: Add test for this (out of image tile should return transparent)
         return Ok(TileData {
-            data: vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize],
+            img: ImageBuffer {
+                data: vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize],
+                width: TILE_SIZE as usize,
+                height: TILE_SIZE as usize,
+                nbands: 3,
+            },
             overview_index,
         });
     }
@@ -171,7 +177,12 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     }
 
     Ok(TileData {
-        data: tile_data,
+        img: ImageBuffer {
+            data: tile_data,
+            width: TILE_SIZE as usize,
+            height: TILE_SIZE as usize,
+            nbands: 3,
+        },
         overview_index,
     })
 }
@@ -391,7 +402,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -409,7 +419,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -428,7 +438,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -446,7 +455,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -465,7 +474,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -483,7 +491,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -502,7 +510,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -520,7 +527,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -543,7 +550,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -562,7 +568,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -587,7 +593,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/marina_1_cog_nocompress.tif 21 1726623 1100526
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -606,7 +611,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -628,7 +633,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress_blocksize_256.tif 17 68710 45698
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -646,7 +650,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -665,7 +669,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549689 365591
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -683,7 +686,7 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 
     #[tokio::test]
@@ -700,7 +703,6 @@ mod tests {
         // extracts and update the expected data accordingly. E.g.:
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
-        //   python utils/npyshow.py rio_tile.npy
         //
         // crate::ppm::write_to_ppm(
         //     "_test_img.ppm",
@@ -718,6 +720,6 @@ mod tests {
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
-        assert_eq!(tile_data.data, expected.data);
+        assert_eq!(tile_data.img.data, expected.data);
     }
 }
