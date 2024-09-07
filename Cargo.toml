@@ -17,7 +17,7 @@ serde_json = { version = "1", optional = true }
 jsonwebtoken = { version = "9.3.0", optional = true }
 # This is a dependency of jsonwebtoken but not specifying it here will fail to resolve
 time = { version = "0.2.18", optional = true }
-reqwest = { version = "0.11.26", features = ["multipart"]}
+reqwest = { version = "0.12.7", features = ["multipart"]}
 percent-encoding = "2.3"
 bytes = "1.5.0"
 proj = { path = "lib/proj" }
