@@ -327,11 +327,7 @@ impl ImageFileDirectory {
         }
     }
 
-    pub async fn get_u64_tag_value(
-        &self,
-        source: &mut Source,
-        tag: IFDTag,
-    ) -> Result<usize, Error> {
+    pub async fn get_u64_tag_value(&self, source: &mut Source, tag: IFDTag) -> Result<u64, Error> {
         Ok(self.get_vec_u64_tag_value(source, tag).await?[0])
     }
 
@@ -339,11 +335,11 @@ impl ImageFileDirectory {
         &self,
         source: &mut Source,
         tag: IFDTag,
-    ) -> Result<Vec<usize>, Error> {
+    ) -> Result<Vec<u64>, Error> {
         match self.get_tag_value(source, tag).await? {
-            IFDValue::Short(values) => Ok(values.iter().map(|v| *v as usize).collect()),
-            IFDValue::Long(values) => Ok(values.iter().map(|v| *v as usize).collect()),
-            IFDValue::Unsigned64(values) => Ok(values.iter().map(|v| *v as usize).collect()),
+            IFDValue::Short(values) => Ok(values.iter().map(|v| *v as u64).collect()),
+            IFDValue::Long(values) => Ok(values.iter().map(|v| *v as u64).collect()),
+            IFDValue::Unsigned64(values) => Ok(values),
             value => Err(Error::TagHasWrongType(tag, value)),
         }
     }

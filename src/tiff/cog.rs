@@ -121,14 +121,13 @@ impl Overview {
         // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
         // (e.g. alpha)
 
-        // TODO: Use u64 instead of usize here
         Ok(Overview {
-            width: ifd.get_u64_tag_value(source, IFDTag::ImageWidth).await? as u64,
-            height: ifd.get_u64_tag_value(source, IFDTag::ImageLength).await? as u64,
+            width: ifd.get_u64_tag_value(source, IFDTag::ImageWidth).await?,
+            height: ifd.get_u64_tag_value(source, IFDTag::ImageLength).await?,
             nbands: nbands as u64,
             photometric_interpretation,
-            tile_width: ifd.get_u64_tag_value(source, IFDTag::TileWidth).await? as u64,
-            tile_height: ifd.get_u64_tag_value(source, IFDTag::TileLength).await? as u64,
+            tile_width: ifd.get_u64_tag_value(source, IFDTag::TileWidth).await?,
+            tile_height: ifd.get_u64_tag_value(source, IFDTag::TileLength).await?,
             ifd,
             is_full_resolution,
             compression,
@@ -141,19 +140,11 @@ impl Overview {
         let tile_offsets = self
             .ifd
             .get_vec_u64_tag_value(source, IFDTag::TileOffsets)
-            .await?
-            .iter()
-            // TODO: Read directly as u64
-            .map(|v| *v as u64)
-            .collect();
+            .await?;
         let tile_bytes_counts = self
             .ifd
             .get_vec_u64_tag_value(source, IFDTag::TileByteCounts)
-            .await?
-            .iter()
-            // TODO: Read directly as u64
-            .map(|v| *v as u64)
-            .collect();
+            .await?;
         Ok(OverviewDataReader {
             width: self.width,
             height: self.height,
