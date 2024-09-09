@@ -460,7 +460,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_extract_tile_local_file_jpeg() {
-        // DEFLATE compressed file
+        // JPEG compressed file
         let mut cog = crate::COG::open("example_data/example_1_cog_jpeg.tif")
             .await
             .unwrap();
