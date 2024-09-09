@@ -1,4 +1,4 @@
-.PHONY: all serve display json display_small json_small display_gm_v10
+.PHONY: all serve display json display_small json_small display_gm_v10 fmt lint
 
 all:
 	cargo build --all-targets
@@ -21,8 +21,13 @@ json:
 json_small:
 	cargo run -F json --bin to_json -- example_data/example_1_cog_nocompress.tif /tmp/out.json && jq . /tmp/out.json > out.json
 
-clippy:
+fmt:
+	cargo fmt
+	venv/bin/python -m black python/acog
+
+lint:
 	cargo clippy --all-features
+	venv/bin/python -m flake8 python/acog
 
 test:
 	cargo test --all-targets
