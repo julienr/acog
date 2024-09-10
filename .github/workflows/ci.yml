@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+      - uses: getsentry/action-setup-venv@v2.1.1
+        id: venv
+        with:
+          python-version: 3.12
+          cache-dependency-path: |
+            requirements.txt
+            requirements-tests.txt
+          install-cmd: pip install -r python/requirements.txt -r python/requirements-dev.txt
+      # Build deps
+      - run: rustup update stable && rustup default stable
+      - run: sudo apt update && sudo apt install -y nasm libproj-dev
+      - run: python3 -m venv venv
+      # lint & build
+      - run: make lint
+      - run: cargo build --locked
+      - run: cd python && maturin develop
+      # tests
+      - run: |
+          docker compose up -d
+          sleep 2
+      - run: make test
+      - run: docker compose down
+        if: always()

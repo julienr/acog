@@ -30,6 +30,7 @@ fmt:
 
 lint:
 	cargo clippy --all-features
+	cargo fmt --check
 	$(activate_venv)
 	python -m black --check python
 	python -m flake8 --config python/.flake8 python
