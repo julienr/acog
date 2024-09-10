@@ -85,9 +85,6 @@ pub enum IFDTag {
     TileOffsets,
     TileByteCounts,
     Orientation,
-    // TODO: See the COG spec for how to handle those values:
-    // https://docs.ogc.org/is/21-026/21-026.html
-    // 7.2.1. Requirement Reduced-Resolution Subfiles
     NewSubfileType,
     SampleFormat,
     Predictor,
@@ -496,7 +493,7 @@ impl TIFFVariant {
         buf: &[u8],
         byte_order: ByteOrder,
     ) -> Result<RawEntryResult, Error> {
-        // TODO: Check buf len depdning on variant (12 bytes classic, 20 bigtiff)
+        // TODO: Check buf len depending on variant (12 bytes classic, 20 bigtiff)
         let tag = decode_tag(decode_u16([buf[0], buf[1]], byte_order));
         let field_type = decode_u16([buf[2], buf[3]], byte_order);
         let field_type = match field_type {

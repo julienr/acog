@@ -105,6 +105,8 @@ impl Overview {
             value => return Err(Error::TagHasWrongType(IFDTag::BitsPerSample, value)),
         }
         let compression = Compression::from_ifd(source, &ifd).await?;
+        // https://docs.ogc.org/is/21-026/21-026.html
+        // 7.2.1. Requirement Reduced-Resolution Subfiles
         let is_full_resolution = match ifd.get_tag_value(source, IFDTag::NewSubfileType).await {
             Ok(v) => match v {
                 IFDValue::Long(v) => v[0] & 0x1 == 0,
@@ -457,6 +459,5 @@ mod tests {
         // If you change the direct data read into a chunked read, that would yield
         // 256 * 256 * 3 / 16384 = ~12 reads
         assert!(stats.contains("read_counts=2"));
-        // TODO: Could expose stats cache and check those as well
     }
 }
