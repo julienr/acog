@@ -1,0 +1,30 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+    - name: Install build deps
+      run: sudo apt update && sudo apt install -y nasm libproj-dev docker-compose-plugin
+    - name: Build
+      run: cargo build
+    - name: Start minio
+      run: docker-compose up -d
+    - name: Run tests
+      run: cargo test
+    - name: Kill minio
+      run: docker-compose kill
