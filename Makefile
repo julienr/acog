@@ -23,11 +23,13 @@ json_small:
 
 fmt:
 	cargo fmt
-	venv/bin/python -m black python/acog
+	venv/bin/python -m black python
 
 lint:
 	cargo clippy --all-features
-	venv/bin/python -m flake8 python/acog
+	venv/bin/python -m black --check python
+	venv/bin/python -m flake8 --config python/.flake8 python
 
 test:
 	cargo test --all-targets
+	venv/bin/python -m pytest python/tests
