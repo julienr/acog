@@ -11,4 +11,4 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = "0.20.0"
 pyo3-asyncio = { version = "0.20.0", features = ["tokio-runtime"] }
-acog = { path = "../../" }
+acog = { path = "../" }

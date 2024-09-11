@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "examples/*", "lib/*", "python/acog"]
+members = [".", "examples/*", "lib/*", "python/"]
 default-members = [".", "examples/*", "lib/*"]
 
 [package]

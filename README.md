@@ -53,8 +53,8 @@ cargo run --bin extract_tile -- /vsigs/acog-test/marina/marina_split_1_cog.tif 1
 Testing extract_tile through python bindings:
 
 ```
-cd python/acog
-maturin develop && python examples/extract_tile.py ../../example_data/example_1_cog_nocompress.tif 20 549687 365589
+cd python
+maturin develop && python examples/extract_tile.py ../example_data/example_1_cog_nocompress.tif 20 549687 365589
 ```
 
 GDAL info on a COG on minio
