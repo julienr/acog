@@ -1,7 +1,9 @@
 version: '3.4'
 
 x-envvars: &env
+  # AWS_ACCESS_KEY
   MINIO_ROOT_USER: V5NSAQUNLNZ5AP7VLLS6
+  # AWS_SECRET_KEY
   MINIO_ROOT_PASSWORD: bu0K3n0kEag8GKfckKPBg4Vu8O8EuYu2UO/wNfqI
 
 services:
@@ -22,11 +24,15 @@ services:
       - .:/localdir
     entrypoint: /bin/sh
     # This automatically set the public bucket as public on startup and sync example_data to it
+    # We also create a 'private' bucket that will require doing signed requests with the aws
+    # access and secret key above
     command: -c "
       mc config host add minio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
       mc mb -p minio/public &&
+      mc mb -p minio/private &&
       mc anonymous set download minio/public &&
-      mc mirror /localdir/example_data/ minio/public/ "
+      mc mirror /localdir/example_data/ minio/public/ &&
+      mc mirror /localdir/example_data/ minio/private/ "
     depends_on:
       - minio
     environment:

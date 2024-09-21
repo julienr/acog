@@ -24,6 +24,9 @@ proj = { path = "lib/proj" }
 flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }
 zune-jpeg = { version = "0.5.0-rc2", optional = true }
 zune-core = { version = "0.5.0-rc2", optional = true }
+hmac = { version = "0.12.1" }
+sha2 = { version = "0.10.8" }
+chrono = { version = "0.4" }
 
 [dev-dependencies]
 testutils = { path = "lib/testutils" }

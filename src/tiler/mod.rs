@@ -690,7 +690,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_tile_minio() {
+    async fn test_extract_tile_minio_public() {
+        // This is a file in a public bucket - not requiring working S3 authentication
         let mut cog = crate::COG::open("/vsis3/public/example_1_cog_3857_nocompress.tif")
             .await
             .unwrap();
@@ -714,6 +715,26 @@ mod tests {
         //     },
         // )
         // .unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
+        )
+        .unwrap();
+        assert_eq!(expected.width, 256);
+        assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.img.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_minio_private() {
+        // This is a file in a private bucket, so this is covering our AWS signature v4 authentication
+        let mut cog = crate::COG::open("/vsis3/private/example_1_cog_3857_nocompress.tif")
+            .await
+            .unwrap();
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 549687, 365589))
+            .await
+            .unwrap();
+        // Expected output should be the same as the `_public` version of this test, so see above for
+        // instructions on how to update it
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )

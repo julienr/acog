@@ -2,6 +2,7 @@ mod auth;
 mod bbox;
 mod epsg;
 mod errors;
+mod hex;
 pub mod image;
 mod math;
 pub mod ppm;

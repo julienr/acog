@@ -1,8 +1,9 @@
 use std::cmp::min;
 
+use crate::auth::aws::sign_request;
 use crate::errors::Error;
 use bytes::Buf;
-use reqwest::Client;
+use reqwest::{Client, Response};
 
 #[derive(Debug, Default)]
 struct Stats {
@@ -25,19 +26,35 @@ impl S3Source {
         })
     }
 
+    async fn do_request(
+        &mut self,
+        host: &str,
+        uri: &str,
+        from: u64,
+        to: u64,
+    ) -> Result<Response, Error> {
+        let headers = sign_request("GET", host, uri)?;
+        let url = format!("http://{host}{uri}");
+        self.stats.requests_count += 1;
+        let req = self
+            .client
+            .get(url)
+            .header("Authorization", headers.authorization_header)
+            .header("Range", format!("bytes={}-{}", from, to))
+            .header("Host", headers.host_header)
+            .header("x-amz-date", headers.amz_date_header);
+        Ok(req.send().await?)
+    }
+
     pub async fn read(&mut self, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
         // TODO: Take endpoint from env var
-        let url = format!("http://localhost:9000/{}", self.blob_name);
-        let mut do_request = |from: u64, to: u64| {
-            println!("Range request: {}-{}", from, to);
-            self.stats.requests_count += 1;
-            self.client
-                .get(url.clone())
-                .header("Range", format!("bytes={}-{}", from, to))
-                .send()
-        };
+        let host = "localhost:9000";
+        let uri = format!("/{}", self.blob_name);
+        //let url = format!("http://localhost:9000/{}", self.blob_name);
         let mut body = {
-            let resp = do_request(offset, offset + buf.len() as u64).await?;
+            let resp = self
+                .do_request(host, &uri, offset, offset + buf.len() as u64)
+                .await?;
             // We check for explicit 206 (Partial Content) because if the server would not support range requests,
             // it could just reply with 200 and the whole document, but we don't support/want this
             // here
