@@ -15,4 +15,4 @@ pip install maturin patchelf
 
 ## Commands
 
-Run `maturin develop` in `python/acog` to build python package
+Run `maturin develop` in `python` to build python package
