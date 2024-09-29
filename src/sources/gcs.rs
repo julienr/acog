@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use crate::auth::gcs::GCSAuth;
+use super::auth::gcs::GCSAuth;
 use crate::errors::Error;
 use bytes::Buf;
 use percent_encoding::{utf8_percent_encode, AsciiSet};

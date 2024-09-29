@@ -1,5 +1,6 @@
 use std::{fmt, io::ErrorKind};
 
+mod auth;
 mod file;
 #[cfg(feature = "gcs")]
 mod gcs;

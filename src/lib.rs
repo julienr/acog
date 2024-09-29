@@ -1,4 +1,3 @@
-mod auth;
 mod bbox;
 mod epsg;
 mod errors;

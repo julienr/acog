@@ -1,6 +1,6 @@
 use std::cmp::min;
 
-use crate::auth::aws::sign_request;
+use super::auth::aws::sign_request;
 use crate::errors::Error;
 use bytes::Buf;
 use reqwest::{Client, Response};
