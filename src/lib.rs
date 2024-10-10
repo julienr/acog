@@ -12,6 +12,7 @@ pub mod tiler;
 pub use errors::Error;
 pub use tiff::cog::{ImageRect, COG};
 pub use tiff::ifd::{FullyDecodedIFDEntry, TIFFReader};
+pub use bbox::BoundingBox;
 
 pub async fn open(source_spec: &str) -> Result<COG, Error> {
     COG::open(source_spec).await
