@@ -9,6 +9,7 @@ mod sources;
 mod tiff;
 pub mod tiler;
 
+pub use bbox::BoundingBox;
 pub use errors::Error;
 pub use tiff::cog::{ImageRect, COG};
 pub use tiff::ifd::{FullyDecodedIFDEntry, TIFFReader};

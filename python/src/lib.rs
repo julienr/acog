@@ -27,6 +27,28 @@ impl ImageTile {
     }
 }
 
+#[pyclass]
+struct BBox(::acog::BoundingBox);
+
+#[pymethods]
+impl BBox {
+    fn xmin(&self) -> PyResult<f64> {
+        Ok(self.0.xmin)
+    }
+
+    fn xmax(&self) -> PyResult<f64> {
+        Ok(self.0.xmax)
+    }
+
+    fn ymin(&self) -> PyResult<f64> {
+        Ok(self.0.ymin)
+    }
+
+    fn ymax(&self) -> PyResult<f64> {
+        Ok(self.0.ymax)
+    }
+}
+
 /// This returns an `ImageTile`
 #[pyfunction]
 fn read_tile(py: Python, filename: String, z: u32, x: u64, y: u64) -> PyResult<&PyAny> {
@@ -47,10 +69,28 @@ fn read_tile(py: Python, filename: String, z: u32, x: u64, y: u64) -> PyResult<&
     })
 }
 
+#[pyfunction]
+fn get_bounds(py: Python, filename: String) -> PyResult<&PyAny> {
+    pyo3_asyncio::tokio::future_into_py(py, async move {
+        let cog = match ::acog::COG::open(&filename).await {
+            Ok(v) => v,
+            Err(e) => return Err(PyRuntimeError::new_err(format!("{:?}", e))),
+        };
+
+        let bbox = match cog.lnglat_bounds() {
+            Ok(v) => v,
+            Err(e) => return Err(PyRuntimeError::new_err(format!("{:?}", e))),
+        };
+        Ok(BBox(bbox))
+    })
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn acog(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_tile, m)?)?;
+    m.add_function(wrap_pyfunction!(get_bounds, m)?)?;
     m.add_class::<ImageTile>()?;
+    m.add_class::<BBox>()?;
     Ok(())
 }
