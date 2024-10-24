@@ -5,11 +5,13 @@ use crate::sources::Source;
 
 mod deflate;
 mod jpeg;
+mod lzw;
 
 pub enum Compression {
     Raw,
     Deflate,
     Jpeg(jpeg::Decompressor),
+    Lzw,
 }
 
 impl std::fmt::Debug for Compression {
@@ -18,6 +20,7 @@ impl std::fmt::Debug for Compression {
             Self::Raw => write!(f, "Raw"),
             Self::Deflate => write!(f, "Deflate"),
             Self::Jpeg(_) => write!(f, "Jpeg"),
+            Self::Lzw => write!(f, "Lzw"),
         }
     }
 }
@@ -55,6 +58,7 @@ impl Compression {
         // https://www.awaresystems.be/imaging/tiff/tifftags/compression.html
         match compression_type {
             1 => Ok(Compression::Raw),
+            5 => Ok(Compression::Lzw),
             // Using COMPRESS=DEFLATE with GDAL generates tag 8 which is actually "Adobe deflate"
             8 => Ok(Compression::Deflate),
             7 => Ok(Compression::Jpeg(jpeg_from_ifd(source, ifd).await?)),
@@ -72,6 +76,7 @@ impl Compression {
             Compression::Raw => decompress_raw(data),
             Compression::Deflate => deflate::decompress_deflate(data),
             Compression::Jpeg(decompressor) => Ok(decompressor.decompress(data, width, height)?),
+            Compression::Lzw => lzw::decompress_lzw(data),
         }
     }
 }
