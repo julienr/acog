@@ -313,6 +313,7 @@ impl IFDEntryMetadata {
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImageFileDirectory {
     entries: Vec<IFDEntryMetadata>,
+    byte_order: ByteOrder,
 }
 
 impl ImageFileDirectory {
@@ -485,7 +486,13 @@ impl TIFFVariant {
                 byte_order,
             ),
         };
-        Ok((ImageFileDirectory { entries }, next_ifd_offset as u64))
+        Ok((
+            ImageFileDirectory {
+                entries,
+                byte_order,
+            },
+            next_ifd_offset as u64,
+        ))
     }
 
     async fn decode_ifd_entry_metadata(
