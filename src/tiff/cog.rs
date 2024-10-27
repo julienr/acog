@@ -84,6 +84,18 @@ impl Overview {
             Ok(other) => return Err(Error::TagHasWrongType(IFDTag::Orientation, other)),
             Err(e) => return Err(e),
         }
+        // Check SampleFormat is unsigned int
+        match ifd.get_tag_value(source, IFDTag::SampleFormat).await? {
+            IFDValue::Short(v) => {
+                if !v.iter().all(|item| *item == 1) {
+                    return Err(Error::UnsupportedTagValue(
+                        IFDTag::SampleFormat,
+                        format!("{:?}", v),
+                    ));
+                }
+            }
+            value => return Err(Error::TagHasWrongType(IFDTag::SampleFormat, value)),
+        }
 
         // Check BitsPerSample is 8
         match ifd.get_tag_value(source, IFDTag::BitsPerSample).await? {
