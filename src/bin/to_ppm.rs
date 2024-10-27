@@ -1,4 +1,3 @@
-use acog::image::ImageBuffer;
 use acog::ppm::write_to_ppm;
 use acog::{Error, ImageRect};
 use std::env;
@@ -21,7 +20,7 @@ async fn main() -> Result<(), Error> {
         "cog width={}, height={}, nbands={}, overviews={}",
         cog.width(),
         cog.height(),
-        cog.nbands(),
+        cog.visual_bands_count(),
         cog.overviews.len()
     );
     for i in 0..cog.overviews.len() {
@@ -55,14 +54,6 @@ async fn main() -> Result<(), Error> {
         .await?
         .read_image_part(&mut cog.source, &rect)
         .await?;
-    write_to_ppm(
-        "img.ppm",
-        &ImageBuffer {
-            data: img_data,
-            width: rect.width() as usize,
-            height: rect.height() as usize,
-            nbands: overview.nbands as usize,
-        },
-    )?;
+    write_to_ppm("img.ppm", &img_data)?;
     Ok(())
 }

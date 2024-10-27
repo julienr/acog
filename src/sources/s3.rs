@@ -107,7 +107,7 @@ mod tests {
             .unwrap();
         assert_eq!(cog.width(), 370);
         assert_eq!(cog.height(), 276);
-        assert_eq!(cog.nbands(), 4);
+        assert_eq!(cog.visual_bands_count(), 3);
         assert_eq!(cog.overviews.len(), 1);
     }
 }

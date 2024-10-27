@@ -85,14 +85,6 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     let overview = &cog.overviews[overview_index];
     let overview_georef = cog.compute_georeference_for_overview(overview);
 
-    let nbands = overview.nbands;
-    if nbands < 3 {
-        return Err(Error::UnsupportedCOG(format!(
-            "Require >= 3 bands, got {}",
-            nbands
-        )));
-    }
-
     // As a first step, read the corresponding area from the overview
     let (overview_area_ul, overview_area_br) = {
         let warper = Warper::new(&overview_georef)?;
@@ -109,6 +101,9 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         i_to: std::cmp::min(overview.height, overview_area_ul.y as u64),
     };
 
+    let nbands = overview.visual_bands_count() as u64;
+    let dtype_size = cog.data_type.size_bytes();
+
     // Out of image tile => return transparent
     if overview_area_rect.j_to <= overview_area_rect.j_from
         || overview_area_rect.i_to <= overview_area_rect.i_from
@@ -116,10 +111,11 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         // TODO: Add test for this (out of image tile should return transparent)
         return Ok(TileData {
             img: ImageBuffer {
-                data: vec![0_u8; (TILE_SIZE * TILE_SIZE * 3) as usize],
+                data: vec![0_u8; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize],
                 width: TILE_SIZE as usize,
                 height: TILE_SIZE as usize,
-                nbands: 3,
+                nbands: nbands as usize,
+                data_type: cog.data_type,
             },
             overview_index,
         });
@@ -132,8 +128,8 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
 
     // For each pixel in the output tile, interpolate its value from the overview_area_data we
     // just read
-    // RGB image
-    let mut tile_data: Vec<u8> = vec![0; (TILE_SIZE * TILE_SIZE * 3) as usize];
+    let mut tile_data: Vec<u8> =
+        vec![0; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize];
     {
         let warper = Warper::new(&overview_georef)?;
         for i in 0..TILE_SIZE {
@@ -166,12 +162,18 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
                 // We need to flip i here because i, j are in TMS coordinates with i/y growing north
                 // but in raster space, y is growing south
                 let i = TILE_SIZE - i - 1;
-                for b in 0..3 {
-                    tile_data[(i * TILE_SIZE * 3 + j * 3 + b) as usize] = overview_area_data
-                        [(overview_area_y as u64 * overview_area_rect.width() * nbands
-                            + overview_area_x as u64 * nbands
-                            + b) as usize];
-                }
+
+                let tile_data_start_offset =
+                    ((i * TILE_SIZE * nbands + j * nbands) * dtype_size as u64) as usize;
+                let overview_data_start_offset =
+                    ((overview_area_y as u64 * overview_area_rect.width() * nbands
+                        + overview_area_x as u64 * nbands)
+                        * dtype_size as u64) as usize;
+                let nbytes = nbands as usize * dtype_size;
+                tile_data[tile_data_start_offset..tile_data_start_offset + nbytes].copy_from_slice(
+                    &overview_area_data.data
+                        [overview_data_start_offset..overview_data_start_offset + nbytes],
+                );
             }
         }
     }
@@ -181,7 +183,8 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
             data: tile_data,
             width: TILE_SIZE as usize,
             height: TILE_SIZE as usize,
-            nbands: 3,
+            nbands: nbands as usize,
+            data_type: cog.data_type,
         },
         overview_index,
     })
@@ -210,6 +213,7 @@ pub fn pixel_to_meters(x: f64, y: f64, zoom: u32) -> (f64, f64) {
 }
 
 impl TMSTileCoords {
+    // Create from XYZ coordinates
     pub fn from_zxy(z: u32, x: u64, y: u64) -> TMSTileCoords {
         TMSTileCoords {
             x,
@@ -403,16 +407,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )
@@ -439,16 +434,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )
@@ -475,16 +461,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_jpeg__20_549687_365589.ppm",
         )
@@ -511,23 +488,44 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        // crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_nocompress__20_549687_365589.ppm",
         )
         .unwrap();
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
+        assert_eq!(tile_data.img.nbands, expected.nbands);
         assert_eq!(tile_data.img.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_multibands() {
+        // Sentinel 2 file with 11 bands
+        let mut cog = crate::COG::open("example_data/s2_corsica_1_multibands_deflate.tiff")
+            .await
+            .unwrap();
+        // This specific tiles also covers the `margin_px` logic we have in `extract_tile``
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(15, 17166, 12168))
+            .await
+            .unwrap();
+        let tile_rgb = tile_data.img.to_rgb(&[3, 1, 0], 0.0, 0.2).unwrap();
+
+        // To update this test, you can output the tile by uncommenting the following. You can
+        // use the utils/extract_tile_rio_tiler.py to compare this tile to what riotiler
+        // extracts and update the expected data accordingly. E.g.:
+        //
+        //   python utils/extract_tile_rio_tiler.py example_data/s2_corsica_1_multibands_deflate.tiff 15 17166 12168 --bands 3,1,0 --vmin=0 --vmax=0.2
+        //
+        // crate::ppm::write_to_ppm("_test_img.ppm", &tile_rgb).unwrap();
+        let expected = crate::ppm::read_ppm(
+            "example_data/tests_expected/s2_corsica_1_multibands_deflate__15_17166_12168.ppm",
+        )
+        .unwrap();
+        assert_eq!(tile_rgb.width, expected.width);
+        assert_eq!(tile_rgb.height, expected.height);
+        assert_eq!(tile_rgb.nbands, expected.nbands);
+        assert_eq!(tile_rgb.data, expected.data);
     }
 
     #[tokio::test]
@@ -551,17 +549,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.data.clone(),
-        //     },
-        // )
-        // .unwrap();
-
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_nocompress__20_549687_365589.ppm",
         )
@@ -594,16 +582,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/marina_1_cog_nocompress.tif 21 1726623 1100526
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
 
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/marina_1_cog_nocompress__21_1726623_1100526.ppm",
@@ -634,16 +613,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress_blocksize_256.tif 17 68710 45698
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress_blocksize_256__17_68710_45698.ppm",
         )
@@ -670,16 +640,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549689 365591
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549689_365591.ppm",
         )
@@ -705,16 +666,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        // crate::ppm::write_to_ppm(
-        //     "_test_img.ppm",
-        //     &crate::image::ImageBuffer {
-        //         width: 256,
-        //         height: 256,
-        //         nbands: 3,
-        //         data: tile_data.clone(),
-        //     },
-        // )
-        // .unwrap();
+        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )

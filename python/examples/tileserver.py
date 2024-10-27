@@ -6,6 +6,7 @@ import acog
 import json
 from aiohttp import web
 from PIL import Image
+import numpy as np
 from io import BytesIO
 
 INDEX_HTML = """
@@ -35,19 +36,45 @@ INDEX_HTML = """
             position: absolute;
             bottom: 20px;
             left: 20px;
+            display: flex;
+            flex-direction: column;
         }
     </style>
 </head>
 <body>
     <div id="map"></div>
     <div class="overlay">
-        <input
-            type="text"
-            id="filename"
-            size="100"
-            value="/vsis3/public/local/marina_cog_nocompress_3857.tif">
-        </input>
-        <button onclick="onView()">View</button>
+        <div class="row">
+            file:
+            <input
+                type="text"
+                id="filename"
+                size="60"
+                value="/vsis3/public/local/marina_cog_nocompress_3857.tif">
+            </input>
+            or example
+            <select
+                id="example"
+                onchange="exampleSelected()">
+                <!-- Options are encoded as "<url>|<params>" -->
+                <option value="/vsis3/public/local/marina_cog_nocompress_3857.tif|">marina</option>
+                <option value="/vsis3/public/local/marina_cog_nocompress_3857.tif|bands=1,1,1&vmax=200">marina gray</option>
+                <option value="/vsis3/public/example_1_cog_jpeg.tif|">example 1</option>
+                <option value="/vsis3/public/s2_corsica_1.tiff|bands=1,2,3&vmax=0.5">s2 corsica 1-3</option>
+            </select>
+        </div>
+        <div class="row">
+            params:
+            <input
+                type="text"
+                id="params"
+                size="20"
+                value="">
+            </input> (e.g. ?bands=0,1,2 or ?bands=1 ?vmin=0 ?vmax=255)
+        </div>
+        <div class="row">
+            <button onclick="onView()">View</button>
+        </div>
     </div>
     <script>
         const map = L.map('map').setView([0, 0], 4);
@@ -58,9 +85,19 @@ INDEX_HTML = """
 
         let tileLayer = null;
 
+        function exampleSelected () {
+            const example = document.getElementById('example').value;
+            const [url, params] = example.split('|');
+            console.log('example', url, params);
+            document.getElementById('filename').value = url;
+            document.getElementById('params').value = params;
+            onView();
+        }
+
         async function onView () {
             const input = document.getElementById('filename');
             const filename = input.value;
+            const params = document.getElementById('params').value;
 
             const resp = await fetch("/bounds/" + filename);
             if (!resp.ok) {
@@ -72,7 +109,8 @@ INDEX_HTML = """
                 L.latLng(bounds.lat_max, bounds.lng_max)
             ));
 
-            const url = "/tile/" + filename + "/{z}/{x}/{y}";
+            const url = "/tile/" + filename + "/{z}/{x}/{y}" + "?" + params;
+            console.log(url);
             if (tileLayer !== null) {
                 map.removeLayer(tileLayer);
             }
@@ -82,7 +120,7 @@ INDEX_HTML = """
         onView();
     </script>
 </body>
-"""
+"""  # noqa(E501)
 
 
 async def index(request):
@@ -107,10 +145,22 @@ async def tile(request):
     y = int(request.match_info.get("y"))
     filename = request.match_info.get("filename")
     image_tile = await acog.read_tile(filename, z, x, y)
-    assert image_tile.nbands() == 3
-    img = Image.frombuffer(
-        "RGB", (image_tile.width(), image_tile.height()), image_tile.data_buffer()
-    )
+    arr = np.frombuffer(
+        image_tile.data_buffer(), dtype=np.dtype(image_tile.dtype())
+    ).reshape(image_tile.height(), image_tile.width(), image_tile.nbands())
+    bands = [int(v) for v in request.query.get("bands", "0,1,2").split(",")]
+    vmin = float(request.query.get("vmin", "0"))
+    vmax = float(request.query.get("vmax", "255"))
+    if len(bands) == 1:
+        arr = np.repeat(arr[:, :, bands[0]], 3, axis=2)
+    else:
+        assert len(bands) == 3
+        arr = arr[:, :, bands]
+    print(f"{vmin=}, {vmax=}, {bands=}")
+
+    arr = np.clip((arr.astype(np.float64) - vmin) / (vmax - vmin), min=0, max=1)
+    img = Image.fromarray(np.uint8(arr * 255))
+    # img = Image.fromarray(np.uint8(arr))
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     return web.Response(body=buffer.getvalue(), content_type="image/png")

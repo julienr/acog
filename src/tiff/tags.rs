@@ -4,6 +4,7 @@ use super::ifd::{IFDTag, IFDValue, ImageFileDirectory};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PhotometricInterpretation {
+    BlackIsZero,
     Rgb,
     Mask,
     YCbCr,
@@ -12,6 +13,7 @@ pub enum PhotometricInterpretation {
 impl PhotometricInterpretation {
     pub fn decode(v: u16) -> Result<PhotometricInterpretation, Error> {
         match v {
+            1 => Ok(PhotometricInterpretation::BlackIsZero),
             2 => Ok(PhotometricInterpretation::Rgb),
             4 => Ok(PhotometricInterpretation::Mask),
             6 => Ok(PhotometricInterpretation::YCbCr),

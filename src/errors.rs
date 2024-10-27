@@ -19,6 +19,7 @@ pub enum Error {
     UnsupportedProjection(String),
     UnsupportedCompression(String),
     UnsupportedUnit(String),
+    UnsupportedDataType(String),
     OutOfBoundsRead(String),
     UnsupportedCOG(String),
     ReqwestError(reqwest::Error),

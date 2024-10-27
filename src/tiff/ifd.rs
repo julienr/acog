@@ -588,7 +588,9 @@ impl TIFFReader {
             if buf[0] == 0x49 && buf[1] == 0x49 {
                 Ok(ByteOrder::LittleEndian)
             } else if buf[0] == 0x4D && buf[1] == 0x4D {
-                Ok(ByteOrder::BigEndian)
+                Err(Error::InvalidData(
+                    "Big endian files not supported".to_string(),
+                ))
             } else {
                 Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
             }
