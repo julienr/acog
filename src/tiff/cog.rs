@@ -1,9 +1,12 @@
 use super::compression::Compression;
+use super::data_types::data_type_from_ifd;
+use super::data_types::DataType;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
 use super::tags::PhotometricInterpretation;
 use crate::bbox::BoundingBox;
+use crate::image::ImageBuffer;
 use crate::sources::Source;
 use crate::Error;
 use proj::Transform;
@@ -18,6 +21,110 @@ pub struct COG {
     pub geo_keys: GeoKeyDirectory,
     pub source: Source,
     pub georeference: Georeference,
+    pub data_type: DataType,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct BandsInterpretation {
+    // An image consists of actual data band (that come first) and possibly an alpha band (that
+    // comes last
+    // Typically:
+    // - A RGBA image will have nbands=4, has_alpha=true
+    // - A RGB image will have nbands=3, has_alpha=false
+    // - A multispectral image will have nbands=10, has_alpha=false
+    // - A mask band will have nbands=0, has_alpha=true
+    pub nbands: usize,
+    pub has_alpha: bool,
+}
+
+impl BandsInterpretation {
+    pub fn new(
+        nbands: usize,
+        extra_samples: &[u64],
+        photometric_interpretation: PhotometricInterpretation,
+    ) -> Result<BandsInterpretation, Error> {
+        match photometric_interpretation {
+            PhotometricInterpretation::BlackIsZero => {
+                // Multispectral images. Typically extra_samples will be all 0
+                if !extra_samples.iter().all(|x| *x == 0) {
+                    Err(Error::OtherError(format!(
+                        "Expected all 0 extra_samples, got {:?}",
+                        extra_samples
+                    )))
+                } else {
+                    Ok(BandsInterpretation {
+                        nbands,
+                        has_alpha: false,
+                    })
+                }
+            }
+            PhotometricInterpretation::Rgb | PhotometricInterpretation::YCbCr => {
+                match extra_samples {
+                    [] => {
+                        if nbands != 3 {
+                            Err(Error::OtherError(format!(
+                                "Got nbands != 3 ({:?}) for RGB or YCbCr color interpretation without extra samples",
+                                nbands
+                            )))
+                        } else {
+                            Ok(BandsInterpretation {
+                                nbands: 3,
+                                has_alpha: false,
+                            })
+                        }
+                    }
+                    [2] => {
+                        if nbands != 4 {
+                            Err(Error::OtherError(format!(
+                                "Got nbands != 4 ({:?}) for RGB or YCbCr color interpretation with extra samples",
+                                nbands
+                            )))
+                        } else {
+                            Ok(BandsInterpretation {
+                                nbands: 4,
+                                has_alpha: true,
+                            })
+                        }
+                    }
+                    _ => Err(Error::OtherError(format!(
+                        "Unable to interpret extra_samples for RGB image: {:?}",
+                        extra_samples
+                    ))),
+                }
+            }
+            PhotometricInterpretation::Mask => {
+                if nbands != 1 {
+                    Err(Error::OtherError(format!(
+                        "Got nbands != 1 ({:?}) for mask color interpretation",
+                        nbands
+                    )))
+                } else if !extra_samples.is_empty() {
+                    Err(Error::OtherError(format!(
+                        "Got extra_samples for mask band: {:?}",
+                        extra_samples
+                    )))
+                } else {
+                    Ok(BandsInterpretation {
+                        nbands: 0,
+                        has_alpha: true,
+                    })
+                }
+            }
+        }
+    }
+
+    // Number of bands excluding alpha
+    fn visual_bands(&self) -> usize {
+        if self.has_alpha {
+            self.nbands - 1
+        } else {
+            self.nbands
+        }
+    }
+
+    fn total_bands(&self) -> usize {
+        self.nbands
+    }
 }
 
 #[derive(Debug)]
@@ -26,23 +133,25 @@ pub struct Overview {
     pub height: u64,
     pub tile_width: u64,
     pub tile_height: u64,
-    pub nbands: u64,
+    pub(self) bands: BandsInterpretation,
     pub photometric_interpretation: PhotometricInterpretation,
     pub ifd: ImageFileDirectory,
     pub is_full_resolution: bool,
     pub compression: Compression,
+    data_type: DataType,
 }
 
 #[derive(Debug)]
 pub struct OverviewDataReader<'a> {
     pub width: u64,
     pub height: u64,
-    pub nbands: u64,
+    bands: BandsInterpretation,
     tile_width: u64,
     tile_height: u64,
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
     compression: &'a Compression,
+    data_type: DataType,
 }
 
 impl Overview {
@@ -84,38 +193,6 @@ impl Overview {
             Ok(other) => return Err(Error::TagHasWrongType(IFDTag::Orientation, other)),
             Err(e) => return Err(e),
         }
-        // Check SampleFormat is unsigned int
-        match ifd.get_tag_value(source, IFDTag::SampleFormat).await? {
-            IFDValue::Short(v) => {
-                if !v.iter().all(|item| *item == 1) {
-                    return Err(Error::UnsupportedTagValue(
-                        IFDTag::SampleFormat,
-                        format!("{:?}", v),
-                    ));
-                }
-            }
-            value => return Err(Error::TagHasWrongType(IFDTag::SampleFormat, value)),
-        }
-
-        // Check BitsPerSample is 8
-        match ifd.get_tag_value(source, IFDTag::BitsPerSample).await? {
-            IFDValue::Short(v) => {
-                if photometric_interpretation == PhotometricInterpretation::Mask {
-                    if !v.iter().all(|item| *item == 1) {
-                        return Err(Error::UnsupportedTagValue(
-                            IFDTag::BitsPerSample,
-                            format!("{:?}", v),
-                        ));
-                    }
-                } else if !v.iter().all(|item| *item == 8) {
-                    return Err(Error::UnsupportedTagValue(
-                        IFDTag::BitsPerSample,
-                        format!("{:?}", v),
-                    ));
-                }
-            }
-            value => return Err(Error::TagHasWrongType(IFDTag::BitsPerSample, value)),
-        }
         let compression = Compression::from_ifd(source, &ifd).await?;
         // https://docs.ogc.org/is/21-026/21-026.html
         // 7.2.1. Requirement Reduced-Resolution Subfiles
@@ -131,20 +208,32 @@ impl Overview {
         // Check SamplesPerPixel
         let nbands = ifd
             .get_u64_tag_value(source, IFDTag::SamplesPerPixel)
-            .await?;
-        // TODO: Could/Should check ExtraSamples to know how to interpret those extra samples
-        // (e.g. alpha)
+            .await? as usize;
+        // Check ExtraSamples
+        let extra_samples = match ifd
+            .get_vec_u64_tag_value(source, IFDTag::ExtraSamples)
+            .await
+        {
+            Ok(v) => Ok(v),
+            // It is optional - and if not present, means no extra samples
+            Err(Error::RequiredTagNotFound(IFDTag::ExtraSamples)) => Ok(vec![]),
+            Err(e) => Err(e),
+        }?;
+        println!("nbands={:?}, extra_samples={:?}", nbands, extra_samples);
+        let bands = BandsInterpretation::new(nbands, &extra_samples, photometric_interpretation)?;
+        let data_type = data_type_from_ifd(&ifd, source).await?;
 
         Ok(Overview {
             width: ifd.get_u64_tag_value(source, IFDTag::ImageWidth).await?,
             height: ifd.get_u64_tag_value(source, IFDTag::ImageLength).await?,
-            nbands: nbands as u64,
+            bands,
             photometric_interpretation,
             tile_width: ifd.get_u64_tag_value(source, IFDTag::TileWidth).await?,
             tile_height: ifd.get_u64_tag_value(source, IFDTag::TileLength).await?,
             ifd,
             is_full_resolution,
             compression,
+            data_type,
         })
     }
 
@@ -162,13 +251,18 @@ impl Overview {
         Ok(OverviewDataReader {
             width: self.width,
             height: self.height,
-            nbands: self.nbands,
+            bands: self.bands,
             tile_width: self.tile_width,
             tile_height: self.tile_height,
             tile_offsets,
             tile_bytes_counts,
             compression: &self.compression,
+            data_type: self.data_type,
         })
+    }
+
+    pub fn visual_bands_count(&self) -> usize {
+        self.bands.visual_bands()
     }
 }
 
@@ -211,15 +305,32 @@ impl OverviewDataReader<'_> {
                 if tj < out_rect.j_from || tj >= out_rect.j_to {
                     continue;
                 }
-                for b in 0..self.nbands {
-                    let out_offset = (ti - out_rect.i_from) * out_rect.width() * self.nbands
-                        + (tj - out_rect.j_from) * self.nbands
-                        + b;
-                    let tile_offset = (ti - tile_rect.i_from) * self.tile_width * self.nbands
-                        + (tj - tile_rect.j_from) * self.nbands
-                        + b;
-                    out_data[out_offset as usize] = tile_data[tile_offset as usize];
-                }
+                // Below here, we'll copy `bytes_to_copy` bytes - the pixel data - from tile_data
+                // to out_data. Note that we copy data for all bands at once and we rely on the
+                // fact that the non-alpha bands are always first in tile_data to copy them at
+                // once and skip the alpha bands.
+                //
+                // TODO: Is this assumption always true ? Is it possible to have ExtraSamples=2
+                // somewhere in the middle of an ExtraSamples array ?
+                let bytes_to_copy = self.bands.visual_bands() * self.data_type.size_bytes();
+                let out_offset = ((ti - out_rect.i_from)
+                    * out_rect.width()
+                    * self.bands.visual_bands() as u64
+                    * self.data_type.size_bytes() as u64
+                    + (tj - out_rect.j_from)
+                        * self.bands.visual_bands() as u64
+                        * self.data_type.size_bytes() as u64)
+                    as usize;
+                let tile_offset = ((ti - tile_rect.i_from)
+                    * self.tile_width
+                    * self.bands.total_bands() as u64
+                    * self.data_type.size_bytes() as u64
+                    + (tj - tile_rect.j_from)
+                        * self.bands.total_bands() as u64
+                        * self.data_type.size_bytes() as u64)
+                    as usize;
+                out_data[out_offset..(out_offset + bytes_to_copy)]
+                    .copy_from_slice(&tile_data[tile_offset..(tile_offset + bytes_to_copy)]);
             }
         }
     }
@@ -228,7 +339,7 @@ impl OverviewDataReader<'_> {
         &self,
         source: &mut Source,
         rect: &ImageRect,
-    ) -> Result<Vec<u8>, Error> {
+    ) -> Result<ImageBuffer, Error> {
         if rect.j_to > self.width {
             return Err(Error::OutOfBoundsRead(format!(
                 "rect.j_to out of bounds: {} > {}",
@@ -242,8 +353,13 @@ impl OverviewDataReader<'_> {
             )));
         }
         // TODO: May want the caller to pass the output vector instead of allocating
-        let nbytes = rect.width() * rect.height() * self.nbands;
-        let mut out_data = vec![0u8; nbytes as usize];
+        let mut out_data = {
+            let nbytes = rect.width() as usize
+                * rect.height() as usize
+                * self.bands.visual_bands()
+                * self.data_type.size_bytes();
+            vec![0u8; nbytes]
+        };
         let start_tile_j = rect.j_from / self.tile_width;
         let start_tile_i = rect.i_from / self.tile_height;
         let end_tile_j = (rect.j_to as f64 / self.tile_width as f64).ceil() as u64;
@@ -279,8 +395,10 @@ impl OverviewDataReader<'_> {
                     i_to: (tile_i + 1) * self.tile_height,
                     j_to: (tile_j + 1) * self.tile_width,
                 };
-                let tile_data_expected_nbytes =
-                    tile_rect.width() * tile_rect.height() * self.nbands;
+                let tile_data_expected_nbytes = tile_rect.width()
+                    * tile_rect.height()
+                    * self.bands.total_bands() as u64
+                    * self.data_type.size_bytes() as u64;
                 if tile_data.len() as u64 != tile_data_expected_nbytes {
                     // If we fail here, two things could have happened:
                     // - The file has partial tiles that are less than tile_size * tile_size. That
@@ -296,7 +414,13 @@ impl OverviewDataReader<'_> {
                 self.paste_tile(&mut out_data, &tile_data, rect, &tile_rect);
             }
         }
-        Ok(out_data)
+        Ok(ImageBuffer {
+            width: rect.width() as usize,
+            height: rect.height() as usize,
+            nbands: self.bands.visual_bands(),
+            data_type: self.data_type,
+            data: out_data,
+        })
     }
 }
 
@@ -312,7 +436,9 @@ impl COG {
             // Check photommetric interpretation to decide whether its the (RGB..) image or mask
             let photo_interp = PhotometricInterpretation::read_from_ifd(&mut source, &ifd).await?;
             match photo_interp {
-                interp @ (PhotometricInterpretation::Rgb | PhotometricInterpretation::YCbCr) => {
+                interp @ (PhotometricInterpretation::Rgb
+                | PhotometricInterpretation::YCbCr
+                | PhotometricInterpretation::BlackIsZero) => {
                     overviews.push(Overview::from_ifd(ifd, &mut source, interp).await?);
                 }
                 interp @ PhotometricInterpretation::Mask => {
@@ -348,10 +474,10 @@ impl COG {
                         i, overviews[i].width, prev_height
                     )));
                 }
-                if overviews[i].nbands != overviews[0].nbands {
+                if overviews[i].bands != overviews[0].bands {
                     return Err(Error::NotACOG(format!(
-                        "Overview {} has inconsistent nbands={}, expected {}",
-                        i, overviews[i].nbands, overviews[0].nbands
+                        "Overview {} has inconsistent nbands={:?}, expected {:?}",
+                        i, overviews[i].bands, overviews[0].bands
                     )));
                 }
                 if overviews[i].is_full_resolution {
@@ -364,10 +490,12 @@ impl COG {
                 prev_height = overviews[i].height;
             }
         }
-        // As per the COG spec, the overview contains the projection/geokey data
+        // As per the COG spec, the first overview contains the projection/geokey data
         let geo_keys = GeoKeyDirectory::from_ifd(&overviews[0].ifd, &mut source).await?;
 
         let georeference = Georeference::decode(&overviews[0].ifd, &mut source, &geo_keys).await?;
+
+        let data_type = data_type_from_ifd(&overviews[0].ifd, &mut source).await?;
 
         Ok(COG {
             overviews,
@@ -375,6 +503,7 @@ impl COG {
             source,
             geo_keys,
             georeference,
+            data_type,
         })
     }
 
@@ -386,8 +515,8 @@ impl COG {
         self.overviews[0].height
     }
 
-    pub fn nbands(&self) -> u64 {
-        self.overviews[0].nbands
+    pub fn visual_bands_count(&self) -> usize {
+        self.overviews[0].visual_bands_count()
     }
 
     pub fn compute_georeference_for_overview(&self, overview: &Overview) -> Georeference {
@@ -437,6 +566,29 @@ impl COG {
             })
             .map_err(|e| e.into())
     }
+
+    /// Reads a part of a specific overview.
+    /// Note that this will create a new overview reader, so this is inefficient if you want to
+    /// read multiple parts: in that case, manage the overview reader yourself and call
+    /// `read_image_part` on `OverviewDataReader`
+    pub async fn read_image_part(
+        &mut self,
+        overview_index: usize,
+        rect: &ImageRect,
+    ) -> Result<ImageBuffer, Error> {
+        if overview_index > self.overviews.len() {
+            return Err(Error::OutOfBoundsRead(format!(
+                "Invalid overview_index={}",
+                overview_index
+            )));
+        }
+        let overview = &self.overviews[overview_index];
+        overview
+            .make_reader(&mut self.source)
+            .await?
+            .read_image_part(&mut self.source, rect)
+            .await
+    }
 }
 
 #[cfg(test)]
@@ -445,7 +597,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_overview_reader_direct_reads() {
-        // Test that reading from overview uses direct reads and not chunked once
+        // Test that reading from overview uses direct reads and not chunked ones
         let mut cog =
             crate::COG::open("example_data/example_1_cog_3857_nocompress_blocksize_256.tif")
                 .await

@@ -17,7 +17,7 @@ async fn main() -> Result<(), Error> {
         "cog width={}, height={}, nbands={}, overviews={}",
         cog.width(),
         cog.height(),
-        cog.nbands(),
+        cog.visual_bands_count(),
         cog.overviews.len()
     );
     for i in 0..cog.overviews.len() {
