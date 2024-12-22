@@ -172,7 +172,6 @@ struct IFDEntryMetadata {
     pub field_type: IFDType,
     pub count: u64,
     pub offset_or_value: OffsetOrInlineValue,
-    byte_order: ByteOrder,
 }
 
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
@@ -189,22 +188,22 @@ enum RawEntryResult {
     InvalidCount(IFDTag, u64),
 }
 
-async fn read_u16(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Result<u16, Error> {
+async fn read_u16(source: &mut Source, offset: u64) -> Result<u16, Error> {
     let mut buf = [0u8; 2];
     source.read_exact(offset, &mut buf).await?;
-    Ok(decode_u16(buf, byte_order))
+    Ok(decode_u16(buf))
 }
 
-async fn read_u32(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Result<u32, Error> {
+async fn read_u32(source: &mut Source, offset: u64) -> Result<u32, Error> {
     let mut buf = [0u8; 4];
     source.read_exact(offset, &mut buf).await?;
-    Ok(decode_u32(buf, byte_order))
+    Ok(decode_u32(buf))
 }
 
-async fn read_u64(source: &mut Source, offset: u64, byte_order: ByteOrder) -> Result<u64, Error> {
+async fn read_u64(source: &mut Source, offset: u64) -> Result<u64, Error> {
     let mut buf = [0u8; 8];
     source.read_exact(offset, &mut buf).await?;
-    Ok(decode_u64(buf, byte_order))
+    Ok(decode_u64(buf))
 }
 
 impl IFDEntryMetadata {
@@ -223,80 +222,34 @@ impl IFDEntryMetadata {
             }
         };
         let value = match self.field_type {
-            IFDType::Byte => IFDValue::Byte(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u8,
-                self.byte_order,
-            )),
-            IFDType::Ascii => IFDValue::Ascii(decode_string(&data, self.byte_order)?),
-            IFDType::Short => IFDValue::Short(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u16,
-                self.byte_order,
-            )),
-            IFDType::Long => IFDValue::Long(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u32,
-                self.byte_order,
-            )),
-            IFDType::Rational => IFDValue::Rational(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u32_pair,
-                self.byte_order,
-            )),
-            IFDType::SignedByte => IFDValue::SignedByte(decode_vec(
-                &data,
-                self.count as usize,
-                decode_i8,
-                self.byte_order,
-            )),
+            IFDType::Byte => IFDValue::Byte(decode_vec(&data, self.count as usize, decode_u8)),
+            IFDType::Ascii => IFDValue::Ascii(decode_string(&data)?),
+            IFDType::Short => IFDValue::Short(decode_vec(&data, self.count as usize, decode_u16)),
+            IFDType::Long => IFDValue::Long(decode_vec(&data, self.count as usize, decode_u32)),
+            IFDType::Rational => {
+                IFDValue::Rational(decode_vec(&data, self.count as usize, decode_u32_pair))
+            }
+            IFDType::SignedByte => {
+                IFDValue::SignedByte(decode_vec(&data, self.count as usize, decode_i8))
+            }
             IFDType::UndefinedRawBytes => IFDValue::UndefinedRawBytes(data),
-            IFDType::SignedShort => IFDValue::SignedShort(decode_vec(
-                &data,
-                self.count as usize,
-                decode_i16,
-                self.byte_order,
-            )),
-            IFDType::SignedLong => IFDValue::SignedLong(decode_vec(
-                &data,
-                self.count as usize,
-                decode_i32,
-                self.byte_order,
-            )),
-            IFDType::SignedRational => IFDValue::SignedRational(decode_vec(
-                &data,
-                self.count as usize,
-                decode_i32_pair,
-                self.byte_order,
-            )),
-            IFDType::Float => IFDValue::Float(decode_vec(
-                &data,
-                self.count as usize,
-                decode_f32,
-                self.byte_order,
-            )),
-            IFDType::Double => IFDValue::Double(decode_vec(
-                &data,
-                self.count as usize,
-                decode_f64,
-                self.byte_order,
-            )),
-            IFDType::Unsigned64 => IFDValue::Unsigned64(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u64,
-                self.byte_order,
-            )),
-            IFDType::Signed64 => IFDValue::Signed64(decode_vec(
-                &data,
-                self.count as usize,
-                decode_u64,
-                self.byte_order,
-            )),
+            IFDType::SignedShort => {
+                IFDValue::SignedShort(decode_vec(&data, self.count as usize, decode_i16))
+            }
+            IFDType::SignedLong => {
+                IFDValue::SignedLong(decode_vec(&data, self.count as usize, decode_i32))
+            }
+            IFDType::SignedRational => {
+                IFDValue::SignedRational(decode_vec(&data, self.count as usize, decode_i32_pair))
+            }
+            IFDType::Float => IFDValue::Float(decode_vec(&data, self.count as usize, decode_f32)),
+            IFDType::Double => IFDValue::Double(decode_vec(&data, self.count as usize, decode_f64)),
+            IFDType::Unsigned64 => {
+                IFDValue::Unsigned64(decode_vec(&data, self.count as usize, decode_u64))
+            }
+            IFDType::Signed64 => {
+                IFDValue::Signed64(decode_vec(&data, self.count as usize, decode_u64))
+            }
         };
         Ok(value)
     }
@@ -313,7 +266,6 @@ impl IFDEntryMetadata {
 #[cfg_attr(feature = "json", derive(serde::Serialize))]
 pub struct ImageFileDirectory {
     entries: Vec<IFDEntryMetadata>,
-    byte_order: ByteOrder,
 }
 
 impl ImageFileDirectory {
@@ -400,26 +352,22 @@ enum TIFFVariant {
 }
 
 impl TIFFVariant {
-    async fn read_initial_ifd_offset(
-        &self,
-        source: &mut Source,
-        byte_order: ByteOrder,
-    ) -> Result<u64, Error> {
+    async fn read_initial_ifd_offset(&self, source: &mut Source) -> Result<u64, Error> {
         match self {
-            TIFFVariant::Classic => Ok(read_u32(source, 4, byte_order).await? as u64),
+            TIFFVariant::Classic => Ok(read_u32(source, 4).await? as u64),
             TIFFVariant::BigTiff => {
-                let offset_bytesize = read_u16(source, 4, byte_order).await?;
+                let offset_bytesize = read_u16(source, 4).await?;
                 if offset_bytesize != 8 {
                     return Err(Error::InvalidData(format!(
                         "Invalid offset bytesize {}",
                         offset_bytesize
                     )));
                 }
-                let pad = read_u16(source, 6, byte_order).await?;
+                let pad = read_u16(source, 6).await?;
                 if pad != 0 {
                     return Err(Error::InvalidData(format!("Invalid pad {}", pad)));
                 }
-                Ok(read_u64(source, 8, byte_order).await?)
+                Ok(read_u64(source, 8).await?)
             }
         }
     }
@@ -442,15 +390,14 @@ impl TIFFVariant {
         &self,
         source: &mut Source,
         offset: u64,
-        byte_order: ByteOrder,
     ) -> Result<(ImageFileDirectory, u64), Error> {
         let (fields_count, offset) = match self {
             TIFFVariant::Classic => (
-                read_u16(source, offset, byte_order).await? as usize,
+                read_u16(source, offset).await? as usize,
                 offset + size_of::<u16>() as u64,
             ),
             TIFFVariant::BigTiff => (
-                read_u64(source, offset, byte_order).await? as usize,
+                read_u64(source, offset).await? as usize,
                 offset + size_of::<u64>() as u64,
             ),
         };
@@ -462,7 +409,7 @@ impl TIFFVariant {
             let entry_start = i * self.ifd_entry_size();
             let entry_end = (i + 1) * self.ifd_entry_size();
             let buf: &[u8] = &ifd_data[entry_start..entry_end];
-            match self.decode_ifd_entry_metadata(buf, byte_order).await? {
+            match self.decode_ifd_entry_metadata(buf).await? {
                 RawEntryResult::KnownType(e) => entries.push(e),
                 RawEntryResult::UnknownType(tag, v) => {
                     println!("Unknown type for tag {:?}: {:?}", tag, v);
@@ -477,32 +424,20 @@ impl TIFFVariant {
                 ifd_data[fields_count * self.ifd_entry_size()..]
                     .try_into()
                     .unwrap(),
-                byte_order,
             ) as u64,
             TIFFVariant::BigTiff => decode_u64(
                 ifd_data[fields_count * self.ifd_entry_size()..]
                     .try_into()
                     .unwrap(),
-                byte_order,
             ),
         };
-        Ok((
-            ImageFileDirectory {
-                entries,
-                byte_order,
-            },
-            next_ifd_offset as u64,
-        ))
+        Ok((ImageFileDirectory { entries }, next_ifd_offset as u64))
     }
 
-    async fn decode_ifd_entry_metadata(
-        &self,
-        buf: &[u8],
-        byte_order: ByteOrder,
-    ) -> Result<RawEntryResult, Error> {
+    async fn decode_ifd_entry_metadata(&self, buf: &[u8]) -> Result<RawEntryResult, Error> {
         // TODO: Check buf len depending on variant (12 bytes classic, 20 bigtiff)
-        let tag = decode_tag(decode_u16([buf[0], buf[1]], byte_order));
-        let field_type = decode_u16([buf[2], buf[3]], byte_order);
+        let tag = decode_tag(decode_u16([buf[0], buf[1]]));
+        let field_type = decode_u16([buf[2], buf[3]]);
         let field_type = match field_type {
             0 => return Ok(RawEntryResult::UnknownType(tag, 0)),
             v @ 19.. => return Ok(RawEntryResult::UnknownType(tag, v)),
@@ -525,29 +460,27 @@ impl TIFFVariant {
         };
         let (count, offset_or_value) = match self {
             TIFFVariant::Classic => {
-                let count = decode_u32_from_slice(&buf[4..8], byte_order) as u64;
+                let count = decode_u32_from_slice(&buf[4..8]) as u64;
                 let offset_or_value: OffsetOrInlineValue = {
                     if type_size(field_type) * count as usize <= 4 {
                         OffsetOrInlineValue::FourBytesInlineValue([
                             buf[8], buf[9], buf[10], buf[11],
                         ])
                     } else {
-                        OffsetOrInlineValue::Offset(
-                            decode_u32_from_slice(&buf[8..12], byte_order) as u64
-                        )
+                        OffsetOrInlineValue::Offset(decode_u32_from_slice(&buf[8..12]) as u64)
                     }
                 };
                 (count, offset_or_value)
             }
             TIFFVariant::BigTiff => {
-                let count = decode_u64_from_slice(&buf[4..12], byte_order);
+                let count = decode_u64_from_slice(&buf[4..12]);
                 let offset_or_value: OffsetOrInlineValue = {
                     if type_size(field_type) * count as usize <= 8 {
                         let mut data = [0u8; 8];
                         data.copy_from_slice(&buf[12..20]);
                         OffsetOrInlineValue::EightBytesInlineValue(data)
                     } else {
-                        OffsetOrInlineValue::Offset(decode_u64_from_slice(&buf[12..20], byte_order))
+                        OffsetOrInlineValue::Offset(decode_u64_from_slice(&buf[12..20]))
                     }
                 };
                 (count, offset_or_value)
@@ -561,7 +494,6 @@ impl TIFFVariant {
             field_type,
             count,
             offset_or_value,
-            byte_order,
         }))
     }
 }
@@ -582,21 +514,21 @@ impl TIFFReader {
     }
     pub async fn open_from_source(mut source: Source) -> Result<TIFFReader, Error> {
         // Byte order & magic number check
-        let byte_order: ByteOrder = {
+        {
             let mut buf = [0u8; 2];
             source.read_exact(0, &mut buf[..]).await?;
             if buf[0] == 0x49 && buf[1] == 0x49 {
-                Ok(ByteOrder::LittleEndian)
+                // Ok (little endian)
             } else if buf[0] == 0x4D && buf[1] == 0x4D {
-                Err(Error::InvalidData(
+                return Err(Error::InvalidData(
                     "Big endian files not supported".to_string(),
-                ))
+                ));
             } else {
-                Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)))
+                return Err(Error::InvalidData(format!("Invalid byte_order {:?}", buf)));
             }
-        }?;
+        }
         let variant: TIFFVariant = {
-            let magic_number = read_u16(&mut source, 2, byte_order).await?;
+            let magic_number = read_u16(&mut source, 2).await?;
             match magic_number {
                 42 => Ok(TIFFVariant::Classic),
                 43 => Ok(TIFFVariant::BigTiff),
@@ -607,9 +539,7 @@ impl TIFFReader {
             }
         }?;
 
-        let initial_ifd_offset: u64 = variant
-            .read_initial_ifd_offset(&mut source, byte_order)
-            .await?;
+        let initial_ifd_offset: u64 = variant.read_initial_ifd_offset(&mut source).await?;
 
         // Read ifds
         let ifds: Vec<ImageFileDirectory> = {
@@ -618,7 +548,7 @@ impl TIFFReader {
             // TODO: Infinite loop detection ?
             while ifd_offset > 0 {
                 let (ifd, next_ifd_offset) = variant
-                    .read_image_file_directory(&mut source, ifd_offset, byte_order)
+                    .read_image_file_directory(&mut source, ifd_offset)
                     .await?;
                 ifd_offset = next_ifd_offset;
                 ifds.push(ifd);
