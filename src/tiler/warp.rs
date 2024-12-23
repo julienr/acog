@@ -13,7 +13,7 @@ pub struct Warper<'a> {
     georef: &'a Georeference,
 }
 
-impl<'a> Warper<'a> {
+impl Warper<'_> {
     pub fn new(georef: &Georeference) -> Result<Warper, Error> {
         Ok(Warper {
             transform: Transform::new(3857, georef.crs.epsg_code())?,

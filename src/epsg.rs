@@ -1,7 +1,6 @@
 use crate::Error;
 
 /// Utilities related to EPSG
-
 pub mod spheroid_3857 {
     // According to the spheroid used by 3857, see https://epsg.io/3857
     pub const EARTH_RADIUS_METERS: f64 = 6378137.0;

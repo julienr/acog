@@ -365,7 +365,7 @@ impl OverviewDataReader<'_> {
         let end_tile_j = (rect.j_to as f64 / self.tile_width as f64).ceil() as u64;
         let end_tile_i = (rect.i_to as f64 / self.tile_height as f64).ceil() as u64;
 
-        let tiles_across = (self.width + self.tile_width - 1) / self.tile_width;
+        let tiles_across = self.width.div_ceil(self.tile_width);
 
         // The below code assumes PlanarConfiguration=1 which is what GDAL does when creating COG, although
         // COGs with other planar configurations are possible in theory

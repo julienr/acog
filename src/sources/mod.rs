@@ -145,7 +145,7 @@ impl ChunkCache {
                             Some(chunk_index as u64 * CHUNK_SIZE as u64 + read_count as u64);
                     }
                 }
-                return Ok(e.insert(chunk));
+                Ok(e.insert(chunk))
             }
         }
     }

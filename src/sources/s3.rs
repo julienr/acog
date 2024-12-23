@@ -98,7 +98,7 @@ mod tests {
     use crate as acog;
 
     /// There is also a tiler "integration test" in `test_extract_tile_minio`
-
+    ///
     /// These tests require minio running with the setup from the `docker-compose.yml` file
     #[tokio::test]
     async fn test_minio_cog_info_example_1() {

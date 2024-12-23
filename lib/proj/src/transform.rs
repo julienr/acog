@@ -109,7 +109,6 @@ mod tests {
     ///
     /// Handy tools to generate tests:
     /// https://epsg.io/transform#s_srs=4326&t_srs=3857&x=NaN&y=NaN
-
     fn assert_coordinate_eq(c1: Coordinate, c2: Coordinate, epsilon: f64) {
         assert_float_eq(c1.0, c2.0, epsilon);
         assert_float_eq(c1.1, c2.1, epsilon);
