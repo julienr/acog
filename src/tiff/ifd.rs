@@ -435,7 +435,19 @@ impl TIFFVariant {
     }
 
     async fn decode_ifd_entry_metadata(&self, buf: &[u8]) -> Result<RawEntryResult, Error> {
-        // TODO: Check buf len depending on variant (12 bytes classic, 20 bigtiff)
+        // Check buf len is correct
+        let expected_len = match self {
+            TIFFVariant::Classic => 12,
+            TIFFVariant::BigTiff => 20,
+        };
+        if buf.len() != expected_len {
+            return Err(Error::InvalidData(format!(
+                "ifd entry has len={}, expected={}",
+                buf.len(),
+                expected_len
+            )));
+        }
+
         let tag = decode_tag(decode_u16([buf[0], buf[1]]));
         let field_type = decode_u16([buf[2], buf[3]]);
         let field_type = match field_type {
