@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 /// Base functionality to read TIFF IFDs (ImageFileDirectory)
 use std::mem::size_of;
 
@@ -556,17 +557,27 @@ impl TIFFReader {
         // Read ifds
         let ifds: Vec<ImageFileDirectory> = {
             let mut ifds = vec![];
+            // We detect infinite ifds loops. This could happen if we have a cycle in the ifd
+            // offsets and we detect that by raising an error if we get a `next_ifd_offset`
+            // that we've already seen
+            let mut seen_offsets: HashSet<u64> = HashSet::new();
             let mut ifd_offset = initial_ifd_offset;
-            // TODO: Infinite loop detection ?
             while ifd_offset > 0 {
+                if seen_offsets.contains(&ifd_offset) {
+                    return Err(Error::InvalidData(format!(
+                        "encountered the same IFD offset twice - malformed file ? {}",
+                        ifd_offset
+                    )));
+                }
                 let (ifd, next_ifd_offset) = variant
                     .read_image_file_directory(&mut source, ifd_offset)
                     .await?;
-                ifd_offset = next_ifd_offset;
+                seen_offsets.insert(ifd_offset);
                 ifds.push(ifd);
+                ifd_offset = next_ifd_offset;
             }
-            ifds
-        };
+            Ok::<Vec<ImageFileDirectory>, Error>(ifds)
+        }?;
 
         Ok(TIFFReader { ifds, source })
     }
