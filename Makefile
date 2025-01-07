@@ -1,4 +1,7 @@
-.PHONY: all serve display json display_small json_small display_gm_v10 fmt lint
+.PHONY: all serve display json display_small json_small display_gm_v10 fmt lint test python
+
+
+activate_venv = if [ -z "$$VIRTUAL_ENV" ] && [ -z "$$NO_VENV" ]; then echo "Enabling venv"; . venv/bin/activate; fi
 
 all:
 	cargo build --all-targets
@@ -27,9 +30,13 @@ fmt:
 
 lint:
 	cargo clippy --all-features
-	venv/bin/python -m black --check python
-	venv/bin/python -m flake8 --config python/.flake8 python
+	$(activate_venv)
+	python -m black --check python
+	python -m flake8 --config python/.flake8 python
 
 test:
 	cargo test --all-targets
-	venv/bin/python -m pytest python/tests
+	$(activate_venv) && python -m pytest python/tests
+
+python:
+	$(activate_venv) && cd python && maturin develop
