@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_tile_local_file_multibands() {
+    async fn test_extract_tile_local_file_float32_multibands() {
         // Sentinel 2 file with 11 bands
         let mut cog = crate::COG::open("example_data/s2_corsica_1_multibands_deflate.tiff")
             .await
