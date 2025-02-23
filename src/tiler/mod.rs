@@ -108,7 +108,6 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     if overview_area_rect.j_to <= overview_area_rect.j_from
         || overview_area_rect.i_to <= overview_area_rect.i_from
     {
-        // TODO: Add test for this (out of image tile should return transparent)
         return Ok(TileData {
             img: ImageBuffer {
                 data: vec![0_u8; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize],
@@ -557,6 +556,22 @@ mod tests {
         assert_eq!(expected.width, 256);
         assert_eq!(expected.height, 256);
         assert_eq!(tile_data.img.data, expected.data);
+    }
+
+    #[tokio::test]
+    async fn test_extract_tile_local_file_out_of_image() {
+        // Tests extracting a tile that is fully out of the image
+        let mut cog = crate::COG::open("example_data/example_1_cog_nocompress.tif")
+            .await
+            .unwrap();
+        // This tile is fully outside of the image
+        let tile_data = super::extract_tile(&mut cog, TMSTileCoords::from_zxy(20, 0, 0))
+            .await
+            .unwrap();
+
+        assert_eq!(tile_data.img.width, 256);
+        assert_eq!(tile_data.img.height, 256);
+        assert_eq!(tile_data.img.data, vec![0_u8; 256 * 256 * 3]);
     }
 
     #[tokio::test]
