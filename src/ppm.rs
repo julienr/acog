@@ -19,6 +19,7 @@ pub fn write_to_ppm(filename: &str, img: &ImageBuffer) -> Result<(), Error> {
             img.nbands
         )));
     }
+
     let mut file = std::fs::File::create(filename)?;
     file.write_all(format!("P6 {} {} 255\n", img.width, img.height).as_bytes())?;
     file.write_all(&img.data)?;
@@ -88,6 +89,7 @@ pub fn read_ppm(filename: &str) -> Result<ImageBuffer, Error> {
         width,
         height,
         nbands: 3,
+        has_alpha: false,
         data_type: DataType::Uint8,
         data,
     })
@@ -107,6 +109,7 @@ mod tests {
                 width: 2,
                 height: 1,
                 nbands: 3,
+                has_alpha: false,
                 data_type: DataType::Uint8,
                 data: data.clone(),
             },
