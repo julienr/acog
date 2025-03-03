@@ -31,6 +31,7 @@ use crate::Error;
 use zune_core::bytestream::ZCursor;
 use zune_jpeg::JpegDecoder;
 
+#[derive(Clone)]
 pub struct Decompressor {
     jpeg_tables: Vec<u8>,
 }

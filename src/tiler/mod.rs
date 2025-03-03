@@ -1,7 +1,7 @@
 use crate::bbox::BoundingBox;
 use crate::epsg::spheroid_3857::{EARTH_RADIUS_METERS, TOP_LEFT_METERS};
 use crate::image::ImageBuffer;
-use crate::tiff::cog::ImageRect;
+use crate::tiff::cog::{COGDataReader, ImageRect};
 use crate::tiff::georef::Georeference;
 use crate::Error;
 use crate::COG;
@@ -119,9 +119,9 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
             overview_index,
         });
     }
-    let overview_area_data = overview
-        .make_reader(&mut cog.source)
-        .await?
+    let reader = cog.make_reader(overview_index).await?;
+    //let reader = COGDataReader::new(cog, overview_index).await?;
+    let overview_area_data = reader
         .read_image_part(&mut cog.source, &overview_area_rect)
         .await?;
 

@@ -16,8 +16,7 @@ use proj::Transform;
 pub struct COG {
     // overviews[0] is the full resolution image
     pub overviews: Vec<Overview>,
-    #[allow(dead_code)]
-    mask_overviews: Vec<Overview>,
+    pub mask_overviews: Vec<Overview>,
     pub geo_keys: GeoKeyDirectory,
     pub source: Source,
     pub georeference: Georeference,
@@ -27,12 +26,12 @@ pub struct COG {
 #[derive(Debug, Copy, Clone, PartialEq)]
 struct BandsInterpretation {
     // An image consists of actual data band (that come first) and possibly an alpha band (that
-    // comes last
+    // comes last)
     // Typically:
     // - A RGBA image will have nbands=4, has_alpha=true
     // - A RGB image will have nbands=3, has_alpha=false
     // - A multispectral image will have nbands=10, has_alpha=false
-    // - A mask band will have nbands=0, has_alpha=true
+    // - A mask band will have nbands=1, has_alpha=true
     pub nbands: usize,
     pub has_alpha: bool,
 }
@@ -73,6 +72,11 @@ impl BandsInterpretation {
                             })
                         }
                     }
+                    // ExtraSamples=2 means "Unassociated alpha data"
+                    // See section 18 of the TIFF spec for more details on associated ws unassociated alpha. As
+                    // far as we're concerned, the only difference seems to be that associated alpha allows
+                    // a half transparent pixels whereas unassociated is basically a mask either 0 or 255 but no
+                    // in-between
                     [2] => {
                         if nbands != 4 {
                             Err(Error::OtherError(format!(
@@ -105,7 +109,7 @@ impl BandsInterpretation {
                     )))
                 } else {
                     Ok(BandsInterpretation {
-                        nbands: 0,
+                        nbands: 1,
                         has_alpha: true,
                     })
                 }
@@ -142,7 +146,7 @@ pub struct Overview {
 }
 
 #[derive(Debug)]
-pub struct OverviewDataReader<'a> {
+pub struct OverviewDataReader {
     pub width: u64,
     pub height: u64,
     bands: BandsInterpretation,
@@ -150,7 +154,7 @@ pub struct OverviewDataReader<'a> {
     tile_height: u64,
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
-    compression: &'a Compression,
+    compression: Compression,
     data_type: DataType,
 }
 
@@ -256,7 +260,7 @@ impl Overview {
             tile_height: self.tile_height,
             tile_offsets,
             tile_bytes_counts,
-            compression: &self.compression,
+            compression: self.compression.clone(),
             data_type: self.data_type,
         })
     }
@@ -285,7 +289,7 @@ impl ImageRect {
     }
 }
 
-impl OverviewDataReader<'_> {
+impl OverviewDataReader {
     // Pastes the given tile at the right location in the output array. Both tile_rect and out_rect
     // define the area covered by out/tile in the whole image
     // Assumes both out_data and tile_data are packed as HwC (PlanarConfiguration=1)
@@ -353,9 +357,12 @@ impl OverviewDataReader<'_> {
             )));
         }
         // TODO: May want the caller to pass the output vector instead of allocating
+        println!("bands={:?}", self.bands);
         let mut out_data = {
             let nbytes = rect.width() as usize
                 * rect.height() as usize
+                // TODO: Shouldn't we use total_bands everywhere and basically remove visual_bands ?
+                // And then handle alpha at a later stage
                 * self.bands.visual_bands()
                 * self.data_type.size_bytes();
             vec![0u8; nbytes]
@@ -567,6 +574,26 @@ impl COG {
             .map_err(|e| e.into())
     }
 
+    pub async fn make_reader(&mut self, overview_index: usize) -> Result<COGDataReader, Error> {
+        let overview_reader = self.overviews[overview_index]
+            .make_reader(&mut self.source)
+            .await?;
+        let mask_overview_reader = if self.mask_overviews.is_empty() {
+            None
+        } else {
+            Some(
+                self.mask_overviews[overview_index]
+                    .make_reader(&mut self.source)
+                    .await?,
+            )
+        };
+        Ok(COGDataReader {
+            bands: self.overviews[overview_index].bands,
+            overview_reader,
+            mask_overview_reader,
+        })
+    }
+
     /// Reads a part of a specific overview.
     /// Note that this will create a new overview reader, so this is inefficient if you want to
     /// read multiple parts: in that case, manage the overview reader yourself and call
@@ -588,6 +615,95 @@ impl COG {
             .await?
             .read_image_part(&mut self.source, rect)
             .await
+    }
+}
+
+// A helper class wraping an overview reader and a potential mask overview reader. This is
+// to allow reading both the image and the mask at the same time
+#[derive(Debug)]
+pub struct COGDataReader {
+    bands: BandsInterpretation,
+    overview_reader: OverviewDataReader,
+    // A reader for the mask data that corresponds to the same overview level as `overview_reader`
+    // This is optional because typically:
+    // - JPEG-encoded COG will have the mask in a separate overview (so mask_overview_reader will
+    //   be defined)
+    // - non-JPEG COGs can have the data just in RGBA (so mask_overview_reader will not be defined,
+    //   all data coming from overview_reader)
+    mask_overview_reader: Option<OverviewDataReader>,
+}
+
+impl COGDataReader {
+    /*
+    pub async fn new(cog: &'a mut COG, overview_index: usize) -> Result<COGDataReader<'a>, Error> {
+        let overview_reader = cog.overviews[overview_index]
+            .make_reader(&mut cog.source)
+            .await?;
+        let mask_overview_reader = if cog.mask_overviews.is_empty() {
+            None
+        } else {
+            Some(
+                cog.mask_overviews[overview_index]
+                    .make_reader(&mut cog.source)
+                    .await?,
+            )
+        };
+        Ok(COGDataReader {
+            bands: cog.overviews[overview_index].bands.clone(),
+            overview_reader,
+            mask_overview_reader,
+        })
+    }
+    */
+
+    pub async fn read_image_part(
+        &self,
+        source: &mut Source,
+        rect: &ImageRect,
+    ) -> Result<ImageBuffer, Error> {
+        let image = self.overview_reader.read_image_part(source, &rect).await?;
+        let mask = match &self.mask_overview_reader {
+            Some(mask_reader) => Some(mask_reader.read_image_part(source, &rect).await?),
+            None => None,
+        };
+
+        if let Some(mask_data) = mask {
+            if mask_data.data_type != DataType::Mask && mask_data.data_type != DataType::Uint8 {
+                return Err(Error::OtherError(format!(
+                    "Expected mask or uint8 data type ofor mask, got {:?}",
+                    mask_data.data_type
+                )));
+            }
+
+            if self.bands.has_alpha {
+                return Err(Error::OtherError(format!(
+                    "Image has both a mask and an alpha band. This is not supported"
+                )));
+            } else {
+                // TODO: Turn into image + alpha band by adding the mask data to a new ImageBuffer
+                let out_data = image
+                    .data
+                    .chunks(image.nbands * image.data_type.size_bytes())
+                    .zip(mask_data.data.iter())
+                    .map(|(a, b)| {
+                        let mut v = a.to_vec();
+                        v.push(*b);
+                        v
+                    })
+                    .flatten()
+                    .collect();
+
+                Ok(ImageBuffer {
+                    width: image.width,
+                    height: image.height,
+                    nbands: image.nbands + 1,
+                    data_type: image.data_type,
+                    data: out_data,
+                })
+            }
+        } else {
+            Ok(image)
+        }
     }
 }
 
