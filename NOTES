@@ -1,0 +1,23 @@
+## when in JPEG compression, mask is in its own overview:
+
+acog (add-test-for-out-of-image-tile) $ cargo run --bin cog_info example_data/example_1_cog_jpeg.tif
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.28s
+     Running `target/debug/cog_info example_data/example_1_cog_jpeg.tif`
+nbands=3, extra_samples=[]
+nbands=1, extra_samples=[]
+cog width=366, height=270, nbands=3, overviews=1
+overview i=0, width=366, height270, tile_width=512, tile_height=512
+geo_key_directory: GeoKeyDirectory { keys: [GeoKeyEntry { id: GTModelType, value: Short([1]) }, GeoKeyEntry { id: GTRasterType, value: Short([1]) }, GeoKeyEntry { id: GTCitation, value: Ascii("CH1903+ / LV95") }, GeoKeyEntry { id: GeogCitation, value: Ascii("CH1903+") }, GeoKeyEntry { id: GeodeticAngularUnits, value: Short([9102]) }, GeoKeyEntry { id: ProjectedCRS, value: Short([2056]) }, GeoKeyEntry { id: ProjLinearUnits, value: Short([9001]) }] }
+georeference: Georeference { crs: Unknown(2056), unit: LinearMeter, geo_transform: Geotransform { ul_x: 2696082.0437470833, ul_y: 1289535.5319519634, x_res: 0.25, y_res: -0.25 } }
+
+## for non JPEG, can just be RGBA in a single overview:
+
+
+acog (add-test-for-out-of-image-tile) $ cargo run --bin cog_info example_data/marina_1_cog_nocompress.tif
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running `target/debug/cog_info example_data/marina_1_cog_nocompress.tif`
+nbands=4, extra_samples=[2]
+cog width=396, height=424, nbands=3, overviews=1
+overview i=0, width=396, height424, tile_width=512, tile_height=512
+geo_key_directory: GeoKeyDirectory { keys: [GeoKeyEntry { id: GTModelType, value: Short([2]) }, GeoKeyEntry { id: GTRasterType, value: Short([1]) }, GeoKeyEntry { id: GeodeticCRS, value: Short([4326]) }, GeoKeyEntry { id: GeogCitation, value: Ascii("WGS 84") }, GeoKeyEntry { id: GeodeticAngularUnits, value: Short([9102]) }, GeoKeyEntry { id: EllipsoidSemiMajorAxis, value: Double([6378137.0]) }, GeoKeyEntry { id: EllipsoidInvFlattening, value: Double([298.257223563]) }] }
+georeference: Georeference { crs: Unknown(4326), unit: Degree, geo_transform: Geotransform { ul_x: 116.394344814, ul_y: -8.881920907, x_res: 7.293459596269258e-7, y_res: -7.243891509443381e-7 } }

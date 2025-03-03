@@ -1,10 +1,10 @@
 use crate::bbox::BoundingBox;
 use crate::epsg::spheroid_3857::{EARTH_RADIUS_METERS, TOP_LEFT_METERS};
 use crate::image::ImageBuffer;
-use crate::tiff::cog::ImageRect;
+use crate::tiff::cog::{COGDataReader, ImageRect};
 use crate::tiff::georef::Georeference;
-use crate::Error;
 use crate::COG;
+use crate::{DataType, Error};
 
 use self::warp::Warper;
 mod warp;
@@ -80,6 +80,29 @@ pub struct TileData {
     overview_index: usize,
 }
 
+// TODO: Remove this - temporary function to drop alpha band until we refactor tests/ppm export
+// to support it
+fn drop_alpha(img: ImageBuffer) -> ImageBuffer {
+    if img.data_type == DataType::Uint8 && img.has_alpha {
+        let visual_bands = img.nbands - 1;
+        let data = img
+            .data
+            .chunks(img.nbands)
+            .flat_map(|chunk| chunk[..visual_bands].to_vec())
+            .collect();
+        ImageBuffer {
+            width: img.width,
+            height: img.height,
+            nbands: visual_bands,
+            data_type: img.data_type,
+            has_alpha: false,
+            data: data,
+        }
+    } else {
+        img
+    }
+}
+
 pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<TileData, Error> {
     let overview_index = find_best_overview(cog, tile_coords.z);
     let overview = &cog.overviews[overview_index];
@@ -101,7 +124,8 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         i_to: std::cmp::min(overview.height, overview_area_ul.y as u64),
     };
 
-    let nbands = overview.visual_bands_count() as u64;
+    let nbands = overview.bands.nbands as u64;
+    let has_alpha = overview.bands.has_alpha;
     let dtype_size = cog.data_type.size_bytes();
 
     // Out of image tile => return transparent
@@ -109,19 +133,20 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         || overview_area_rect.i_to <= overview_area_rect.i_from
     {
         return Ok(TileData {
-            img: ImageBuffer {
+            // TODO: Remove `remove_alpha` call once we have proper support for alpha bands in tests/ppm
+            img: drop_alpha(ImageBuffer {
                 data: vec![0_u8; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize],
                 width: TILE_SIZE as usize,
                 height: TILE_SIZE as usize,
                 nbands: nbands as usize,
+                has_alpha: has_alpha,
                 data_type: cog.data_type,
-            },
+            }),
             overview_index,
         });
     }
-    let overview_area_data = overview
-        .make_reader(&mut cog.source)
-        .await?
+    let reader = cog.make_reader(overview_index).await?;
+    let overview_area_data = reader
         .read_image_part(&mut cog.source, &overview_area_rect)
         .await?;
 
@@ -178,13 +203,15 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     }
 
     Ok(TileData {
-        img: ImageBuffer {
+        // TODO: Remove `drop_alpha` call once we have proper support for alpha bands in tests/ppm
+        img: drop_alpha(ImageBuffer {
             data: tile_data,
             width: TILE_SIZE as usize,
             height: TILE_SIZE as usize,
             nbands: nbands as usize,
+            has_alpha: has_alpha,
             data_type: cog.data_type,
-        },
+        }),
         overview_index,
     })
 }
@@ -433,7 +460,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
+        // crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )
