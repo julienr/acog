@@ -370,11 +370,12 @@ impl OverviewDataReader {
 
                 // Decompress
                 // TODO: Could reduce allocations by reusing the output vector across tiles (e.g. weezl support into_vec)
-                let tile_data = self.compression.decompress(
+                tile_data = self.compression.decompress(
                     tile_data,
                     self.tile_width as usize,
                     self.tile_height as usize,
                 )?;
+                tile_data = self.data_type.unpack_bytes(&tile_data);
 
                 let tile_rect = ImageRect {
                     i_from: tile_i * self.tile_height,
@@ -382,7 +383,6 @@ impl OverviewDataReader {
                     i_to: (tile_i + 1) * self.tile_height,
                     j_to: (tile_j + 1) * self.tile_width,
                 };
-                // TODO: size_bytes doesn't work for mask because its encoded as 1 bit per pixel => 1 byte for 8 pixels
                 let tile_data_expected_nbytes = tile_rect.width()
                     * tile_rect.height()
                     * self.bands.nbands as u64
@@ -640,6 +640,13 @@ impl COGDataReader {
                     "Image has both a mask and an alpha band. This is not supported"
                 )));
             } else {
+                if image.data_type != DataType::Uint8 {
+                    // TODO: Implement that
+                    return Err(Error::OtherError(format!(
+                        "Non-uint8 masked images not supported yet {:?}",
+                        image.data_type
+                    )));
+                }
                 // TODO: Turn into image + alpha band by adding the mask data to a new ImageBuffer
                 let out_data = image
                     .data

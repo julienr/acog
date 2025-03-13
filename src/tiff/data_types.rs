@@ -9,12 +9,37 @@ pub enum DataType {
     Float32,
 }
 
+fn unpack_bitmask(bytes: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(bytes.len() * 8);
+
+    for byte in bytes {
+        for bit_position in 0..8 {
+            let bit = (*byte >> bit_position) & 1;
+            result.push(bit * 255);
+        }
+    }
+
+    result
+}
+
 impl DataType {
+    // The size in byte as represented in memory, after calling `unpack_bytes`.
+    // Note that this may **not** be the size in bytes to read as some data types
+    // (e.g. Mask) are packed.
     pub fn size_bytes(&self) -> usize {
         match self {
             DataType::Mask => 1,
             DataType::Uint8 => 1,
             DataType::Float32 => 4,
+        }
+    }
+
+    // Some datatype (well, Mask) is stored packed as 8 values per byte. So we need an
+    // "unpack" step first
+    pub fn unpack_bytes(&self, data: &[u8]) -> Vec<u8> {
+        match self {
+            DataType::Mask => unpack_bitmask(data),
+            DataType::Uint8 | DataType::Float32 => data.to_vec(),
         }
     }
 }

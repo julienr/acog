@@ -47,3 +47,9 @@ impl ImageBuffer {
         })
     }
 }
+
+/*
+pub fn stack(image1: &ImageBuffer, image2: &ImageBuffer) -> ImageBuffer {
+    if image1.data_type
+}
+*/
