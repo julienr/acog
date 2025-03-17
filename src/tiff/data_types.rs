@@ -1,9 +1,12 @@
 use super::ifd::{IFDTag, ImageFileDirectory};
 use crate::errors::Error;
+use crate::image;
 use crate::sources::Source;
 
+// This data type is purely used to read and should be transformed to an image::DataType
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DataType {
+pub enum InternalDataType {
+    // Mask are packed as 8 values into a byte on disk
     Mask,
     Uint8,
     Float32,
@@ -22,24 +25,21 @@ fn unpack_bitmask(bytes: &[u8]) -> Vec<u8> {
     result
 }
 
-impl DataType {
-    // The size in byte as represented in memory, after calling `unpack_bytes`.
-    // Note that this may **not** be the size in bytes to read as some data types
-    // (e.g. Mask) are packed.
-    pub fn size_bytes(&self) -> usize {
-        match self {
-            DataType::Mask => 1,
-            DataType::Uint8 => 1,
-            DataType::Float32 => 4,
-        }
-    }
-
+impl InternalDataType {
     // Some datatype (well, Mask) is stored packed as 8 values per byte. So we need an
     // "unpack" step first
     pub fn unpack_bytes(&self, data: &[u8]) -> Vec<u8> {
         match self {
-            DataType::Mask => unpack_bitmask(data),
-            DataType::Uint8 | DataType::Float32 => data.to_vec(),
+            InternalDataType::Mask => unpack_bitmask(data),
+            InternalDataType::Uint8 | InternalDataType::Float32 => data.to_vec(),
+        }
+    }
+
+    // The corresponding data type after the data has gone through `unpack_bytes`
+    pub fn unpacked_type(&self) -> image::DataType {
+        match self {
+            InternalDataType::Mask | InternalDataType::Uint8 => image::DataType::Uint8,
+            InternalDataType::Float32 => image::DataType::Float32,
         }
     }
 }
@@ -67,7 +67,7 @@ fn check_all_same(numbers: &[u16]) -> Result<u16, Error> {
 pub async fn data_type_from_ifd(
     ifd: &ImageFileDirectory,
     source: &mut Source,
-) -> Result<DataType, Error> {
+) -> Result<InternalDataType, Error> {
     let sample_format = check_all_same(
         &ifd.get_vec_short_tag_value(source, IFDTag::SampleFormat)
             .await?,
@@ -78,9 +78,9 @@ pub async fn data_type_from_ifd(
     )?;
     if sample_format == 1 {
         if bits_per_sample == 1 {
-            Ok(DataType::Mask)
+            Ok(InternalDataType::Mask)
         } else if bits_per_sample == 8 {
-            Ok(DataType::Uint8)
+            Ok(InternalDataType::Uint8)
         } else {
             Err(Error::UnsupportedDataType(format!(
                 "SampleFormat={}, BitsPerSample={}",
@@ -96,7 +96,7 @@ pub async fn data_type_from_ifd(
     } else if sample_format == 3 {
         // float
         if bits_per_sample == 32 {
-            Ok(DataType::Float32)
+            Ok(InternalDataType::Float32)
         } else {
             Err(Error::UnsupportedDataType(format!(
                 "SampleFormat={}, BitsPerSample={}",

@@ -1,12 +1,13 @@
 use super::compression::Compression;
 use super::data_types::data_type_from_ifd;
-use super::data_types::DataType;
+use super::data_types::InternalDataType;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
 use super::tags::PhotometricInterpretation;
 use crate::bbox::BoundingBox;
-use crate::image::ImageBuffer;
+use crate::image;
+use crate::image::{DataType, ImageBuffer};
 use crate::sources::Source;
 use crate::Error;
 use proj::Transform;
@@ -20,7 +21,7 @@ pub struct COG {
     pub geo_keys: GeoKeyDirectory,
     pub source: Source,
     pub georeference: Georeference,
-    pub data_type: DataType,
+    pub data_type: InternalDataType,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -129,7 +130,7 @@ pub struct Overview {
     pub ifd: ImageFileDirectory,
     pub is_full_resolution: bool,
     pub compression: Compression,
-    data_type: DataType,
+    data_type: InternalDataType,
 }
 
 #[derive(Debug)]
@@ -142,7 +143,7 @@ pub struct OverviewDataReader {
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
     compression: Compression,
-    data_type: DataType,
+    data_type: InternalDataType,
 }
 
 impl Overview {
@@ -286,6 +287,7 @@ impl OverviewDataReader {
         out_rect: &ImageRect,
         tile_rect: &ImageRect,
     ) {
+        let size_bytes = self.data_type.unpacked_type().size_bytes();
         // Note that tiles can be larger than the image, so we need to ignore out of bounds pixels
         for ti in tile_rect.i_from..tile_rect.i_to {
             if ti < out_rect.i_from || ti >= out_rect.i_to {
@@ -295,22 +297,18 @@ impl OverviewDataReader {
                 if tj < out_rect.j_from || tj >= out_rect.j_to {
                     continue;
                 }
-                let bytes_to_copy = self.bands.nbands * self.data_type.size_bytes();
+                let bytes_to_copy = self.bands.nbands * size_bytes;
                 let out_offset = ((ti - out_rect.i_from)
                     * out_rect.width()
                     * self.bands.nbands as u64
-                    * self.data_type.size_bytes() as u64
-                    + (tj - out_rect.j_from)
-                        * self.bands.nbands as u64
-                        * self.data_type.size_bytes() as u64)
+                    * size_bytes as u64
+                    + (tj - out_rect.j_from) * self.bands.nbands as u64 * size_bytes as u64)
                     as usize;
                 let tile_offset = ((ti - tile_rect.i_from)
                     * self.tile_width
                     * self.bands.nbands as u64
-                    * self.data_type.size_bytes() as u64
-                    + (tj - tile_rect.j_from)
-                        * self.bands.nbands as u64
-                        * self.data_type.size_bytes() as u64)
+                    * size_bytes as u64
+                    + (tj - tile_rect.j_from) * self.bands.nbands as u64 * size_bytes as u64)
                     as usize;
                 out_data[out_offset..(out_offset + bytes_to_copy)]
                     .copy_from_slice(&tile_data[tile_offset..(tile_offset + bytes_to_copy)]);
@@ -344,7 +342,7 @@ impl OverviewDataReader {
             let nbytes = rect.width() as usize
                 * rect.height() as usize
                 * self.bands.nbands
-                * self.data_type.size_bytes();
+                * self.data_type.unpacked_type().size_bytes();
             vec![0u8; nbytes]
         };
         let start_tile_j = rect.j_from / self.tile_width;
@@ -386,7 +384,7 @@ impl OverviewDataReader {
                 let tile_data_expected_nbytes = tile_rect.width()
                     * tile_rect.height()
                     * self.bands.nbands as u64
-                    * self.data_type.size_bytes() as u64;
+                    * self.data_type.unpacked_type().size_bytes() as u64;
                 if tile_data.len() as u64 != tile_data_expected_nbytes {
                     // If we fail here, two things could have happened:
                     // - The file has partial tiles that are less than tile_size * tile_size. That
@@ -406,7 +404,7 @@ impl OverviewDataReader {
             width: rect.width() as usize,
             height: rect.height() as usize,
             nbands: self.bands.nbands,
-            data_type: self.data_type,
+            data_type: self.data_type.unpacked_type(),
             has_alpha: self.bands.has_alpha,
             data: out_data,
         })
@@ -616,22 +614,41 @@ pub struct COGDataReader {
 }
 
 impl COGDataReader {
+    /// Return true if the result of `read_image_part` will have `has_alpha=true`
+    /// TODO: Should we instead always read with alpha ?
+    pub fn has_output_alpha(&self) -> bool {
+        self.overview_reader.bands.has_alpha || self.mask_overview_reader.is_some()
+    }
+
+    pub fn output_bands(&self) -> usize {
+        match self.mask_overview_reader {
+            Some(_) => self.overview_reader.bands.nbands + 1,
+            None => self.overview_reader.bands.nbands,
+        }
+    }
+
     pub async fn read_image_part(
         &self,
         source: &mut Source,
         rect: &ImageRect,
     ) -> Result<ImageBuffer, Error> {
         let image = self.overview_reader.read_image_part(source, &rect).await?;
-        let mask = match &self.mask_overview_reader {
+        let maybe_mask = match &self.mask_overview_reader {
             Some(mask_reader) => Some(mask_reader.read_image_part(source, &rect).await?),
             None => None,
         };
 
-        if let Some(mask_data) = mask {
-            if mask_data.data_type != DataType::Mask && mask_data.data_type != DataType::Uint8 {
+        if let Some(mask) = maybe_mask {
+            if mask.width != image.width || mask.height != image.height {
+                return Err(Error::OtherError(format!(
+                    "mask size ({}, {}) and image size ({}, {}) mismatch",
+                    mask.width, mask.height, image.width, image.height
+                )));
+            }
+            if mask.data_type != DataType::Uint8 {
                 return Err(Error::OtherError(format!(
                     "Expected mask or uint8 data type ofor mask, got {:?}",
-                    mask_data.data_type
+                    mask.data_type
                 )));
             }
 
@@ -647,27 +664,7 @@ impl COGDataReader {
                         image.data_type
                     )));
                 }
-                // TODO: Turn into image + alpha band by adding the mask data to a new ImageBuffer
-                let out_data = image
-                    .data
-                    .chunks(image.nbands * image.data_type.size_bytes())
-                    .zip(mask_data.data.iter())
-                    .map(|(a, b)| {
-                        let mut v = a.to_vec();
-                        v.push(*b);
-                        v
-                    })
-                    .flatten()
-                    .collect();
-
-                Ok(ImageBuffer {
-                    width: image.width,
-                    height: image.height,
-                    nbands: image.nbands + 1,
-                    data_type: image.data_type,
-                    has_alpha: true,
-                    data: out_data,
-                })
+                Ok(image::stack(&image, &mask)?)
             }
         } else {
             Ok(image)

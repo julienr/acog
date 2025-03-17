@@ -30,7 +30,6 @@ impl PyImage {
 
     fn dtype(&self) -> PyResult<String> {
         Ok(match self.img.data_type {
-            DataType::Mask => "uint8".to_string(),
             DataType::Uint8 => "uint8".to_string(),
             DataType::Float32 => "float32".to_string(),
         })
