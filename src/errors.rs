@@ -63,6 +63,12 @@ impl From<std::time::SystemTimeError> for Error {
     }
 }
 
+impl From<std::num::TryFromIntError> for Error {
+    fn from(value: std::num::TryFromIntError) -> Self {
+        Error::OtherError(format!("Number conversion error {:?}", value))
+    }
+}
+
 #[cfg(feature = "json")]
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
