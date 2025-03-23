@@ -60,6 +60,27 @@ impl ImageBuffer {
             data: out_data,
         })
     }
+
+    pub fn drop_alpha(self) -> ImageBuffer {
+        if self.has_alpha {
+            let visual_bands = self.nbands - 1;
+            let data = self
+                .data
+                .chunks(self.nbands * self.data_type.size_bytes())
+                .flat_map(|chunk| chunk[..visual_bands * self.data_type.size_bytes()].to_vec())
+                .collect();
+            ImageBuffer {
+                width: self.width,
+                height: self.height,
+                nbands: visual_bands,
+                data_type: self.data_type,
+                has_alpha: false,
+                data,
+            }
+        } else {
+            self
+        }
+    }
 }
 
 pub fn stack(image1: &ImageBuffer, image2: &ImageBuffer) -> Result<ImageBuffer, Error> {
@@ -110,27 +131,6 @@ pub fn stack(image1: &ImageBuffer, image2: &ImageBuffer) -> Result<ImageBuffer, 
         data_type: image1.data_type,
         data: out_data,
     })
-}
-
-pub fn drop_alpha(img: ImageBuffer) -> ImageBuffer {
-    if img.has_alpha {
-        let visual_bands = img.nbands - 1;
-        let data = img
-            .data
-            .chunks(img.nbands * img.data_type.size_bytes())
-            .flat_map(|chunk| chunk[..visual_bands * img.data_type.size_bytes()].to_vec())
-            .collect();
-        ImageBuffer {
-            width: img.width,
-            height: img.height,
-            nbands: visual_bands,
-            data_type: img.data_type,
-            has_alpha: false,
-            data,
-        }
-    } else {
-        img
-    }
 }
 
 #[cfg(test)]

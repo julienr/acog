@@ -111,8 +111,7 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         || overview_area_rect.i_to <= overview_area_rect.i_from
     {
         return Ok(TileData {
-            // TODO: Remove `remove_alpha` call once we have proper support for alpha bands in tests/ppm
-            img: image::drop_alpha(ImageBuffer {
+            img: ImageBuffer {
                 data: vec![
                     0_u8;
                     (TILE_SIZE * TILE_SIZE * reader.output_bands() as u64 * dtype_size as u64)
@@ -123,7 +122,7 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
                 nbands: reader.output_bands(),
                 has_alpha: reader.has_output_alpha(),
                 data_type: cog.data_type.unpacked_type(),
-            }),
+            },
             overview_index,
         });
     }
@@ -186,15 +185,14 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     }
 
     Ok(TileData {
-        // TODO: Remove `drop_alpha` call once we have proper support for alpha bands in tests/ppm
-        img: image::drop_alpha(ImageBuffer {
+        img: ImageBuffer {
             data: tile_data,
             width: TILE_SIZE as usize,
             height: TILE_SIZE as usize,
             nbands: nbands as usize,
             has_alpha: overview_area_data.has_alpha,
             data_type: cog.data_type.unpacked_type(),
-        }),
+        },
         overview_index,
     })
 }
