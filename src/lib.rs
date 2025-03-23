@@ -6,6 +6,7 @@ pub mod image;
 mod math;
 pub mod ppm;
 mod sources;
+pub mod tga;
 mod tiff;
 pub mod tiler;
 
