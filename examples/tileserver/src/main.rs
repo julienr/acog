@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use std::io::BufWriter;
 use std::num::ParseIntError;
 
 use acog::tiler::{extract_tile, TMSTileCoords};
@@ -37,12 +38,6 @@ impl From<acog::Error> for Error {
 impl From<ParseIntError> for Error {
     fn from(value: ParseIntError) -> Self {
         Error::Other(format!("ParseIntError: {:?}", value))
-    }
-}
-
-impl From<turbojpeg::Error> for Error {
-    fn from(value: turbojpeg::Error) -> Self {
-        Error::Other(format!("turbojpeg error: {:?}", value))
     }
 }
 
@@ -94,20 +89,32 @@ async fn get_tile(filename: &str, z: u32, x: u64, y: u64) -> Result<HandlerRespo
     println!("get_tile {} {} {} {}", filename, z, x, y);
     let mut cog = acog::COG::open(filename).await?;
     let tile_data = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
-    // Encode to jpeg using turbojpeg and send back data
-    let img = turbojpeg::Image::<&[u8]> {
-        pixels: &tile_data.img.data,
-        width: tile_data.img.width,
-        height: tile_data.img.height,
-        pitch: tile_data.img.width * 3,
-        format: turbojpeg::PixelFormat::RGB,
+
+    if tile_data.img.nbands != 4 {
+        return Err(Error::Other(format!(
+            "Expected 4 bands, got {}",
+            tile_data.img.nbands
+        )));
+    }
+    let png_data = {
+        let mut buf = Vec::new();
+        let mut encoder = png::Encoder::new(
+            BufWriter::new(&mut buf),
+            tile_data.img.width as u32,
+            tile_data.img.height as u32,
+        );
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        {
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&tile_data.img.data).unwrap();
+        }
+        buf
     };
-    let jpeg_buf = turbojpeg::compress(img, 95, turbojpeg::Subsamp::Sub2x2)?;
-    let jpeg_data: Vec<u8> = jpeg_buf.as_ref().to_vec();
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "image/jpeg")
-        .body(Full::from(jpeg_data))?)
+        .header("Content-Type", "image/png")
+        .body(Full::from(png_data))?)
 }
 
 #[derive(Clone)]
