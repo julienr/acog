@@ -5,6 +5,7 @@ import argparse
 from rio_tiler.io import Reader
 import numpy as np
 import pylab as pl
+from PIL import Image
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -31,6 +32,7 @@ if __name__ == "__main__":
         img = img[:, :, bands]
         img = (img - vmin) / (vmax - vmin)
         img = (img * 255).astype(np.uint8)
-        # tile also has a .mask that we should compare against
+        img = np.dstack([img, tile.mask])
+    Image.fromarray(img).save("_rio_tile.png")
     pl.imshow(img)
     pl.show()
