@@ -1,7 +1,6 @@
 // Target simple RGBA read & write support
 // https://paulbourke.net/dataformats/tga/
-use crate::image::ImageBuffer;
-use crate::tiff::data_types::DataType;
+use crate::image::{DataType, ImageBuffer};
 use crate::Error;
 use std::io::{BufReader, Read, Write};
 
@@ -122,6 +121,7 @@ pub fn read_tga(filename: &str) -> Result<ImageBuffer, Error> {
     Ok(ImageBuffer {
         width,
         height,
+        has_alpha: true,
         nbands: 4,
         data_type: DataType::Uint8,
         data,
@@ -130,18 +130,20 @@ pub fn read_tga(filename: &str) -> Result<ImageBuffer, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::image::ImageBuffer;
-    use crate::tiff::data_types::DataType;
+    use crate::image::{DataType, ImageBuffer};
 
     #[test]
-    fn test_write_read_tga() {
-        let data = vec![0u8, 0u8, 0u8, 127u8, 255u8, 255u8, 255u8, 0u8];
+    fn test_write_read_tga_rgb() {
+        let data = vec![0u8, 0u8, 0u8, 255u8, 255u8, 255u8];
+        // We always write as RGBA, so just expected alpha=255 here
+        let expected_data = vec![0u8, 0u8, 0u8, 255u8, 255u8, 255u8, 255u8, 255u8];
         super::write_to_tga(
             "/tmp/test.ppm",
             &ImageBuffer {
                 width: 2,
                 height: 1,
-                nbands: 4,
+                nbands: 3,
+                has_alpha: false,
                 data_type: DataType::Uint8,
                 data: data.clone(),
             },
@@ -151,6 +153,30 @@ mod tests {
         assert_eq!(actual_img.width, 2);
         assert_eq!(actual_img.height, 1);
         assert_eq!(actual_img.nbands, 4);
+        assert!(actual_img.has_alpha);
+        assert_eq!(actual_img.data, expected_data);
+    }
+
+    #[test]
+    fn test_write_read_tga_rgba() {
+        let data = vec![0u8, 0u8, 0u8, 127u8, 255u8, 255u8, 255u8, 0u8];
+        super::write_to_tga(
+            "/tmp/test.ppm",
+            &ImageBuffer {
+                width: 2,
+                height: 1,
+                nbands: 4,
+                has_alpha: true,
+                data_type: DataType::Uint8,
+                data: data.clone(),
+            },
+        )
+        .unwrap();
+        let actual_img = super::read_tga("/tmp/test.ppm").unwrap();
+        assert_eq!(actual_img.width, 2);
+        assert_eq!(actual_img.height, 1);
+        assert_eq!(actual_img.nbands, 4);
+        assert!(actual_img.has_alpha);
         assert_eq!(actual_img.data, data);
     }
 }

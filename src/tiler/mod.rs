@@ -1,5 +1,6 @@
 use crate::bbox::BoundingBox;
 use crate::epsg::spheroid_3857::{EARTH_RADIUS_METERS, TOP_LEFT_METERS};
+use crate::image;
 use crate::image::ImageBuffer;
 use crate::tiff::cog::ImageRect;
 use crate::tiff::georef::Georeference;
@@ -33,6 +34,7 @@ pub struct TMSTileCoords {
     pub z: u32,
 }
 
+// TODO: Change to usize
 pub const TILE_SIZE: u64 = 256;
 
 trait OverviewGeoreferenceCollection {
@@ -101,8 +103,8 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
         i_to: std::cmp::min(overview.height, overview_area_ul.y as u64),
     };
 
-    let nbands = overview.visual_bands_count() as u64;
-    let dtype_size = cog.data_type.size_bytes();
+    let dtype_size = cog.data_type.unpacked_type().size_bytes();
+    let reader = cog.make_reader(overview_index).await?;
 
     // Out of image tile => return transparent
     if overview_area_rect.j_to <= overview_area_rect.j_from
@@ -110,25 +112,30 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
     {
         return Ok(TileData {
             img: ImageBuffer {
-                data: vec![0_u8; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize],
+                data: vec![
+                    0_u8;
+                    (TILE_SIZE * TILE_SIZE * reader.output_bands() as u64 * dtype_size as u64)
+                        as usize
+                ],
                 width: TILE_SIZE as usize,
                 height: TILE_SIZE as usize,
-                nbands: nbands as usize,
-                data_type: cog.data_type,
+                nbands: reader.output_bands(),
+                has_alpha: reader.has_output_alpha(),
+                data_type: cog.data_type.unpacked_type(),
             },
             overview_index,
         });
     }
-    let overview_area_data = overview
-        .make_reader(&mut cog.source)
-        .await?
+
+    let overview_area_data = reader
         .read_image_part(&mut cog.source, &overview_area_rect)
         .await?;
+    let nbands = overview_area_data.nbands;
 
     // For each pixel in the output tile, interpolate its value from the overview_area_data we
     // just read
     let mut tile_data: Vec<u8> =
-        vec![0; (TILE_SIZE * TILE_SIZE * nbands * dtype_size as u64) as usize];
+        vec![0; TILE_SIZE as usize * TILE_SIZE as usize * nbands * dtype_size];
     {
         let warper = Warper::new(&overview_georef)?;
         for i in 0..TILE_SIZE {
@@ -162,11 +169,11 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
                 // but in raster space, y is growing south
                 let i = TILE_SIZE - i - 1;
 
-                let tile_data_start_offset =
-                    ((i * TILE_SIZE * nbands + j * nbands) * dtype_size as u64) as usize;
+                let tile_data_start_offset = ((i * TILE_SIZE * nbands as u64 + j * nbands as u64)
+                    * dtype_size as u64) as usize;
                 let overview_data_start_offset =
-                    ((overview_area_y as u64 * overview_area_rect.width() * nbands
-                        + overview_area_x as u64 * nbands)
+                    ((overview_area_y as u64 * overview_area_rect.width() * nbands as u64
+                        + overview_area_x as u64 * nbands as u64)
                         * dtype_size as u64) as usize;
                 let nbytes = nbands as usize * dtype_size;
                 tile_data[tile_data_start_offset..tile_data_start_offset + nbytes].copy_from_slice(
@@ -183,7 +190,8 @@ pub async fn extract_tile(cog: &mut COG, tile_coords: TMSTileCoords) -> Result<T
             width: TILE_SIZE as usize,
             height: TILE_SIZE as usize,
             nbands: nbands as usize,
-            data_type: cog.data_type,
+            has_alpha: overview_area_data.has_alpha,
+            data_type: cog.data_type.unpacked_type(),
         },
         overview_index,
     })
@@ -433,7 +441,7 @@ mod tests {
         //
         //   python utils/extract_tile_rio_tiler.py example_data/example_1_cog_3857_nocompress.tif 20 549687 365589
         //
-        //   crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
+        // crate::ppm::write_to_ppm("_test_img.ppm", &tile_data.img).unwrap();
         let expected = crate::ppm::read_ppm(
             "example_data/tests_expected/example_1_cog_3857_nocompress__20_549687_365589.ppm",
         )

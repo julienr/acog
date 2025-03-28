@@ -1,12 +1,13 @@
 use super::compression::Compression;
 use super::data_types::data_type_from_ifd;
-use super::data_types::DataType;
+use super::data_types::InternalDataType;
 use super::geo_keys::GeoKeyDirectory;
 use super::georef::{Georeference, Geotransform};
 use super::ifd::{IFDTag, IFDValue, ImageFileDirectory, TIFFReader};
 use super::tags::PhotometricInterpretation;
 use crate::bbox::BoundingBox;
-use crate::image::ImageBuffer;
+use crate::image;
+use crate::image::{DataType, ImageBuffer};
 use crate::sources::Source;
 use crate::Error;
 use proj::Transform;
@@ -16,23 +17,22 @@ use proj::Transform;
 pub struct COG {
     // overviews[0] is the full resolution image
     pub overviews: Vec<Overview>,
-    #[allow(dead_code)]
-    mask_overviews: Vec<Overview>,
+    pub mask_overviews: Vec<Overview>,
     pub geo_keys: GeoKeyDirectory,
     pub source: Source,
     pub georeference: Georeference,
-    pub data_type: DataType,
+    pub data_type: InternalDataType,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-struct BandsInterpretation {
+pub struct BandsInterpretation {
     // An image consists of actual data band (that come first) and possibly an alpha band (that
-    // comes last
+    // comes last)
     // Typically:
     // - A RGBA image will have nbands=4, has_alpha=true
     // - A RGB image will have nbands=3, has_alpha=false
     // - A multispectral image will have nbands=10, has_alpha=false
-    // - A mask band will have nbands=0, has_alpha=true
+    // - A mask band will have nbands=1, has_alpha=true
     pub nbands: usize,
     pub has_alpha: bool,
 }
@@ -73,6 +73,11 @@ impl BandsInterpretation {
                             })
                         }
                     }
+                    // ExtraSamples=2 means "Unassociated alpha data"
+                    // See section 18 of the TIFF spec for more details on associated ws unassociated alpha. As
+                    // far as we're concerned, the only difference seems to be that associated alpha allows
+                    // a half transparent pixels whereas unassociated is basically a mask either 0 or 255 but no
+                    // in-between
                     [2] => {
                         if nbands != 4 {
                             Err(Error::OtherError(format!(
@@ -105,25 +110,12 @@ impl BandsInterpretation {
                     )))
                 } else {
                     Ok(BandsInterpretation {
-                        nbands: 0,
+                        nbands: 1,
                         has_alpha: true,
                     })
                 }
             }
         }
-    }
-
-    // Number of bands excluding alpha
-    fn visual_bands(&self) -> usize {
-        if self.has_alpha {
-            self.nbands - 1
-        } else {
-            self.nbands
-        }
-    }
-
-    fn total_bands(&self) -> usize {
-        self.nbands
     }
 }
 
@@ -133,16 +125,16 @@ pub struct Overview {
     pub height: u64,
     pub tile_width: u64,
     pub tile_height: u64,
-    pub(self) bands: BandsInterpretation,
+    pub bands: BandsInterpretation,
     pub photometric_interpretation: PhotometricInterpretation,
     pub ifd: ImageFileDirectory,
     pub is_full_resolution: bool,
     pub compression: Compression,
-    data_type: DataType,
+    data_type: InternalDataType,
 }
 
 #[derive(Debug)]
-pub struct OverviewDataReader<'a> {
+pub struct OverviewDataReader {
     pub width: u64,
     pub height: u64,
     bands: BandsInterpretation,
@@ -150,8 +142,8 @@ pub struct OverviewDataReader<'a> {
     tile_height: u64,
     tile_offsets: Vec<u64>,
     tile_bytes_counts: Vec<u64>,
-    compression: &'a Compression,
-    data_type: DataType,
+    compression: Compression,
+    data_type: InternalDataType,
 }
 
 impl Overview {
@@ -219,7 +211,10 @@ impl Overview {
             Err(Error::RequiredTagNotFound(IFDTag::ExtraSamples)) => Ok(vec![]),
             Err(e) => Err(e),
         }?;
-        println!("nbands={:?}, extra_samples={:?}", nbands, extra_samples);
+        println!(
+            "nbands={:?}, extra_samples={:?}, compression={:?}",
+            nbands, extra_samples, compression
+        );
         let bands = BandsInterpretation::new(nbands, &extra_samples, photometric_interpretation)?;
         let data_type = data_type_from_ifd(&ifd, source).await?;
 
@@ -256,13 +251,9 @@ impl Overview {
             tile_height: self.tile_height,
             tile_offsets,
             tile_bytes_counts,
-            compression: &self.compression,
+            compression: self.compression.clone(),
             data_type: self.data_type,
         })
-    }
-
-    pub fn visual_bands_count(&self) -> usize {
-        self.bands.visual_bands()
     }
 }
 
@@ -285,7 +276,7 @@ impl ImageRect {
     }
 }
 
-impl OverviewDataReader<'_> {
+impl OverviewDataReader {
     // Pastes the given tile at the right location in the output array. Both tile_rect and out_rect
     // define the area covered by out/tile in the whole image
     // Assumes both out_data and tile_data are packed as HwC (PlanarConfiguration=1)
@@ -296,6 +287,7 @@ impl OverviewDataReader<'_> {
         out_rect: &ImageRect,
         tile_rect: &ImageRect,
     ) {
+        let size_bytes = self.data_type.unpacked_type().size_bytes();
         // Note that tiles can be larger than the image, so we need to ignore out of bounds pixels
         for ti in tile_rect.i_from..tile_rect.i_to {
             if ti < out_rect.i_from || ti >= out_rect.i_to {
@@ -305,29 +297,18 @@ impl OverviewDataReader<'_> {
                 if tj < out_rect.j_from || tj >= out_rect.j_to {
                     continue;
                 }
-                // Below here, we'll copy `bytes_to_copy` bytes - the pixel data - from tile_data
-                // to out_data. Note that we copy data for all bands at once and we rely on the
-                // fact that the non-alpha bands are always first in tile_data to copy them at
-                // once and skip the alpha bands.
-                //
-                // TODO: Is this assumption always true ? Is it possible to have ExtraSamples=2
-                // somewhere in the middle of an ExtraSamples array ?
-                let bytes_to_copy = self.bands.visual_bands() * self.data_type.size_bytes();
+                let bytes_to_copy = self.bands.nbands * size_bytes;
                 let out_offset = ((ti - out_rect.i_from)
                     * out_rect.width()
-                    * self.bands.visual_bands() as u64
-                    * self.data_type.size_bytes() as u64
-                    + (tj - out_rect.j_from)
-                        * self.bands.visual_bands() as u64
-                        * self.data_type.size_bytes() as u64)
+                    * self.bands.nbands as u64
+                    * size_bytes as u64
+                    + (tj - out_rect.j_from) * self.bands.nbands as u64 * size_bytes as u64)
                     as usize;
                 let tile_offset = ((ti - tile_rect.i_from)
                     * self.tile_width
-                    * self.bands.total_bands() as u64
-                    * self.data_type.size_bytes() as u64
-                    + (tj - tile_rect.j_from)
-                        * self.bands.total_bands() as u64
-                        * self.data_type.size_bytes() as u64)
+                    * self.bands.nbands as u64
+                    * size_bytes as u64
+                    + (tj - tile_rect.j_from) * self.bands.nbands as u64 * size_bytes as u64)
                     as usize;
                 out_data[out_offset..(out_offset + bytes_to_copy)]
                     .copy_from_slice(&tile_data[tile_offset..(tile_offset + bytes_to_copy)]);
@@ -353,11 +334,15 @@ impl OverviewDataReader<'_> {
             )));
         }
         // TODO: May want the caller to pass the output vector instead of allocating
+        println!(
+            "tile_width={}, tile_height={}, bands={:?}, data_type={:?}",
+            self.tile_width, self.tile_height, self.bands, self.data_type
+        );
         let mut out_data = {
             let nbytes = rect.width() as usize
                 * rect.height() as usize
-                * self.bands.visual_bands()
-                * self.data_type.size_bytes();
+                * self.bands.nbands
+                * self.data_type.unpacked_type().size_bytes();
             vec![0u8; nbytes]
         };
         let start_tile_j = rect.j_from / self.tile_width;
@@ -383,11 +368,12 @@ impl OverviewDataReader<'_> {
 
                 // Decompress
                 // TODO: Could reduce allocations by reusing the output vector across tiles (e.g. weezl support into_vec)
-                let tile_data = self.compression.decompress(
+                tile_data = self.compression.decompress(
                     tile_data,
                     self.tile_width as usize,
                     self.tile_height as usize,
                 )?;
+                tile_data = self.data_type.unpack_bytes(&tile_data);
 
                 let tile_rect = ImageRect {
                     i_from: tile_i * self.tile_height,
@@ -397,8 +383,8 @@ impl OverviewDataReader<'_> {
                 };
                 let tile_data_expected_nbytes = tile_rect.width()
                     * tile_rect.height()
-                    * self.bands.total_bands() as u64
-                    * self.data_type.size_bytes() as u64;
+                    * self.bands.nbands as u64
+                    * self.data_type.unpacked_type().size_bytes() as u64;
                 if tile_data.len() as u64 != tile_data_expected_nbytes {
                     // If we fail here, two things could have happened:
                     // - The file has partial tiles that are less than tile_size * tile_size. That
@@ -417,8 +403,9 @@ impl OverviewDataReader<'_> {
         Ok(ImageBuffer {
             width: rect.width() as usize,
             height: rect.height() as usize,
-            nbands: self.bands.visual_bands(),
-            data_type: self.data_type,
+            nbands: self.bands.nbands,
+            data_type: self.data_type.unpacked_type(),
+            has_alpha: self.bands.has_alpha,
             data: out_data,
         })
     }
@@ -515,8 +502,8 @@ impl COG {
         self.overviews[0].height
     }
 
-    pub fn visual_bands_count(&self) -> usize {
-        self.overviews[0].visual_bands_count()
+    pub fn bands_count(&self) -> usize {
+        self.overviews[0].bands.nbands
     }
 
     pub fn compute_georeference_for_overview(&self, overview: &Overview) -> Georeference {
@@ -567,6 +554,26 @@ impl COG {
             .map_err(|e| e.into())
     }
 
+    pub async fn make_reader(&mut self, overview_index: usize) -> Result<COGDataReader, Error> {
+        let overview_reader = self.overviews[overview_index]
+            .make_reader(&mut self.source)
+            .await?;
+        let mask_overview_reader = if self.mask_overviews.is_empty() {
+            None
+        } else {
+            Some(
+                self.mask_overviews[overview_index]
+                    .make_reader(&mut self.source)
+                    .await?,
+            )
+        };
+        Ok(COGDataReader {
+            bands: self.overviews[overview_index].bands,
+            overview_reader,
+            mask_overview_reader,
+        })
+    }
+
     /// Reads a part of a specific overview.
     /// Note that this will create a new overview reader, so this is inefficient if you want to
     /// read multiple parts: in that case, manage the overview reader yourself and call
@@ -588,6 +595,80 @@ impl COG {
             .await?
             .read_image_part(&mut self.source, rect)
             .await
+    }
+}
+
+// A helper class wraping an overview reader and a potential mask overview reader. This is
+// to allow reading both the image and the mask at the same time
+#[derive(Debug)]
+pub struct COGDataReader {
+    bands: BandsInterpretation,
+    overview_reader: OverviewDataReader,
+    // A reader for the mask data that corresponds to the same overview level as `overview_reader`
+    // This is optional because typically:
+    // - JPEG-encoded COG will have the mask in a separate overview (so mask_overview_reader will
+    //   be defined)
+    // - non-JPEG COGs can have the data just in RGBA (so mask_overview_reader will not be defined,
+    //   all data coming from overview_reader)
+    mask_overview_reader: Option<OverviewDataReader>,
+}
+
+impl COGDataReader {
+    /// Return true if the result of `read_image_part` will have `has_alpha=true`
+    /// TODO: Should we instead always read with alpha ?
+    pub fn has_output_alpha(&self) -> bool {
+        self.overview_reader.bands.has_alpha || self.mask_overview_reader.is_some()
+    }
+
+    pub fn output_bands(&self) -> usize {
+        match self.mask_overview_reader {
+            Some(_) => self.overview_reader.bands.nbands + 1,
+            None => self.overview_reader.bands.nbands,
+        }
+    }
+
+    pub async fn read_image_part(
+        &self,
+        source: &mut Source,
+        rect: &ImageRect,
+    ) -> Result<ImageBuffer, Error> {
+        let image = self.overview_reader.read_image_part(source, &rect).await?;
+        let maybe_mask = match &self.mask_overview_reader {
+            Some(mask_reader) => Some(mask_reader.read_image_part(source, &rect).await?),
+            None => None,
+        };
+
+        if let Some(mask) = maybe_mask {
+            if mask.width != image.width || mask.height != image.height {
+                return Err(Error::OtherError(format!(
+                    "mask size ({}, {}) and image size ({}, {}) mismatch",
+                    mask.width, mask.height, image.width, image.height
+                )));
+            }
+            if mask.data_type != DataType::Uint8 {
+                return Err(Error::OtherError(format!(
+                    "Expected mask or uint8 data type ofor mask, got {:?}",
+                    mask.data_type
+                )));
+            }
+
+            if self.bands.has_alpha {
+                return Err(Error::OtherError(format!(
+                    "Image has both a mask and an alpha band. This is not supported"
+                )));
+            } else {
+                if image.data_type != DataType::Uint8 {
+                    // TODO: Implement that
+                    return Err(Error::OtherError(format!(
+                        "Non-uint8 masked images not supported yet {:?}",
+                        image.data_type
+                    )));
+                }
+                Ok(image::stack(&image, &mask)?)
+            }
+        } else {
+            Ok(image)
+        }
     }
 }
 

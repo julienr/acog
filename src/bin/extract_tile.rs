@@ -1,4 +1,3 @@
-use acog::ppm::write_to_ppm;
 use acog::tga::write_to_tga;
 use acog::tiler::{extract_tile, TMSTileCoords};
 use acog::Error;
@@ -23,7 +22,6 @@ async fn main() -> Result<(), Error> {
     let mut cog = acog::COG::open(filename).await?;
     let tile = extract_tile(&mut cog, TMSTileCoords::from_zxy(z, x, y)).await?;
     write_to_tga("img.tga", &tile.img)?;
-    write_to_ppm("img.ppm", &tile.img)?;
     println!("Stats: {}", cog.get_stats());
     Ok(())
 }

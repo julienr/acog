@@ -6,6 +6,7 @@ use crate::sources::Source;
 mod deflate;
 mod jpeg;
 
+#[derive(Clone)]
 pub enum Compression {
     Raw,
     Deflate,

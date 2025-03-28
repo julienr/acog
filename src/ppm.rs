@@ -1,7 +1,6 @@
 /// Utility functions to read/write ppm - only used for tests so this isn't meant as a general
 /// purpose ppm library
-use crate::image::ImageBuffer;
-use crate::tiff::data_types::DataType;
+use crate::image::{DataType, ImageBuffer};
 use crate::Error;
 use std::io::{BufReader, Read, Write};
 use std::str;
@@ -19,6 +18,7 @@ pub fn write_to_ppm(filename: &str, img: &ImageBuffer) -> Result<(), Error> {
             img.nbands
         )));
     }
+
     let mut file = std::fs::File::create(filename)?;
     file.write_all(format!("P6 {} {} 255\n", img.width, img.height).as_bytes())?;
     file.write_all(&img.data)?;
@@ -88,6 +88,7 @@ pub fn read_ppm(filename: &str) -> Result<ImageBuffer, Error> {
         width,
         height,
         nbands: 3,
+        has_alpha: false,
         data_type: DataType::Uint8,
         data,
     })
@@ -95,8 +96,7 @@ pub fn read_ppm(filename: &str) -> Result<ImageBuffer, Error> {
 
 #[cfg(test)]
 mod tests {
-    use crate::image::ImageBuffer;
-    use crate::tiff::data_types::DataType;
+    use crate::image::{DataType, ImageBuffer};
 
     #[test]
     fn test_write_read_ppm() {
@@ -107,6 +107,7 @@ mod tests {
                 width: 2,
                 height: 1,
                 nbands: 3,
+                has_alpha: false,
                 data_type: DataType::Uint8,
                 data: data.clone(),
             },
